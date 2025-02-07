@@ -313,65 +313,71 @@ class ModernExcelCompilerApp(QMainWindow):
 
     def create_options_group(self):
         group = QGroupBox("Options de compilation")
-        layout = QVBoxLayout()
-
-       # Ligne de début des en-têtes
-        header_start_layout = QHBoxLayout()
+        grid_layout = QGridLayout()
+        
+        # Première colonne : Spinboxes et labels
+        # Ligne 0
         self.label_header_start = QLabel("Ligne de début des en-têtes :")
         self.spinbox_header_start = QSpinBox()
         self.spinbox_header_start.setMinimum(1)
         self.spinbox_header_start.setMaximum(20)
         self.spinbox_header_start.setValue(1)
-        header_start_layout.addWidget(self.label_header_start)
-        header_start_layout.addWidget(self.spinbox_header_start)
-        header_start_layout.addStretch()
-
-        # Nombre de lignes d'en-tête
-        header_layout = QHBoxLayout()
+        header_start_container = QHBoxLayout()
+        header_start_container.addWidget(self.label_header_start)
+        header_start_container.addWidget(self.spinbox_header_start)
+        header_start_container.addStretch()
+        
+        # Ligne 1
         self.label_header = QLabel("Nombre de lignes d'en-tête :")
         self.spinbox_header = QSpinBox()
         self.spinbox_header.setMinimum(1)
         self.spinbox_header.setMaximum(15)
         self.spinbox_header.setValue(1)
-        header_layout.addWidget(self.label_header)
-        header_layout.addWidget(self.spinbox_header)
-        header_layout.addStretch()
-
-        # Options des en-têtes
+        header_container = QHBoxLayout()
+        header_container.addWidget(self.label_header)
+        header_container.addWidget(self.spinbox_header)
+        header_container.addStretch()
+        
+        # Deuxième colonne : Checkboxes pour répéter et fusionner
         self.checkbox_repeat_header = QCheckBox("Répéter les en-têtes pour chaque fichier")
         self.checkbox_merge_headers = QCheckBox("Fusionner les en-têtes multi-niveaux")
-        self.checkbox_add_filename = QCheckBox("Ajouter le nom du fichier source")
-        self.checkbox_add_filename.setChecked(False)  # Décoché par défaut
         
+        # Troisième colonne : Nom de fichier et sortie
+        self.checkbox_add_filename = QCheckBox("Ajouter les noms des fichiers sources")
+        self.checkbox_add_filename.setChecked(False)
         
-
-        # Nom du fichier de sortie
-        options_layout1 = QHBoxLayout()
-        options_layout2 = QHBoxLayout()
-        output_layout = QHBoxLayout()
         self.label_output_name = QLabel("Nom du fichier de sortie :")
         self.lineedit_output_name = QLineEdit("compilation.xlsx")
-        output_layout.addWidget(self.label_output_name)
-        output_layout.addWidget(self.lineedit_output_name)
-
-
-        options_layout1.addLayout(header_start_layout)
-        options_layout1.addStretch()
-        options_layout1.addWidget(self.checkbox_repeat_header)
-        options_layout1.addStretch()
-        options_layout1.addWidget(self.checkbox_add_filename)
-
-        options_layout2.addLayout(header_layout)
-        options_layout2.addStretch()
-        options_layout2.addWidget(self.checkbox_merge_headers)
-        options_layout2.addStretch()
+        output_container = QHBoxLayout()
+        output_container.addWidget(self.label_output_name)
+        output_container.addWidget(self.lineedit_output_name)
         
+        # Ajout des widgets au QGridLayout
+        # Première colonne (0)
+        grid_layout.addLayout(header_start_container, 0, 0)
+        grid_layout.addLayout(header_container, 1, 0)
         
-
-        layout.addLayout(options_layout1)
-        layout.addLayout(options_layout2)
-        layout.addLayout(output_layout)
-        group.setLayout(layout)
+        # Deuxième colonne (1)
+        grid_layout.addWidget(self.checkbox_repeat_header, 0, 1)
+        grid_layout.addWidget(self.checkbox_merge_headers, 1, 1)
+        
+        # Troisième colonne (2)
+        grid_layout.addWidget(self.checkbox_add_filename, 0, 2)
+        grid_layout.addLayout(output_container, 1, 2)
+        
+        # Définir l'espacement et les marges
+        grid_layout.setSpacing(20)  # Espacement entre les éléments
+        grid_layout.setContentsMargins(20, 20, 20, 20)  # Marges autour de la grille
+        
+        # Définir les colonnes pour qu'elles aient la même largeur
+        grid_layout.setColumnStretch(0, 1)
+        grid_layout.setColumnStretch(1, 1)
+        grid_layout.setColumnStretch(2, 1)
+        
+        # Alignement vertical des éléments
+        grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        group.setLayout(grid_layout)
         return group
 
     def update_datetime(self):
@@ -437,36 +443,115 @@ class ModernExcelCompilerApp(QMainWindow):
         layout = QVBoxLayout()
 
         help_text = """
-        <h2>Guide d'utilisation</h2>
+        <style>
+        body {
+            font-family: "Segoe UI", sans-serif;
+            margin: 0 20px;
+            line-height: 1.6;
+        }
+
+        h2, h3 {
+            color: #2e7d32;
+            font-weight: bold;
+            margin: 25px 0 15px 0;
+        }
+
+        h4 {
+            margin: 12px 0;
+            padding-left: 20px;
+            font-weight: normal;
+        }
+
+        ul {
+            margin-left: 50px;
+            line-height: 1.5;
+        }
+
+        li {
+            margin: 15px 0;
+        }
+
+        .section-content {
+            padding-left: 30px;
+        }
+
+        b {
+            color: #1b5e20;
+        }
+
+        /* Améliorations pour l'expérience utilisateur */
+        @media (max-width: 768px) {
+            body {
+                margin: 0 10px;
+            }
+            
+            .section-content {
+                padding-left: 15px;
+            }
+        }
+
+        /* Animation subtile au survol des sections */
+        h3:hover {
+            transform: translateX(5px);
+            transition: transform 0.2s ease;
+        }
+        </style>
+
+        <h2>Guide d'utilisation du Compilateur Excel</h2>
         
-        <h3>1. Sélection des fichiers</h3>
-        - Cliquez sur "Choisir un répertoire" pour sélectionner le dossier contenant vos fichiers Excel
-        - Sélectionnez les fichiers à compiler dans la liste
-        - Utilisez la case "Sélectionner tous les fichiers" pour tout sélectionner
+        <h3>  I. Sélection des fichiers</h3>
+        <h4>  - Cliquez sur "Choisir un répertoire" pour sélectionner le dossier contenant vos fichiers Excel<h4>
+        <h4>  - Sélectionnez les fichiers à compiler dans la liste<h4>
+        <h4>  - Utilisez la case "Sélectionner tous les fichiers" pour tout sélectionner/désélectionner<h4>
+        <h4>  - Le nombre de fichiers sélectionnés est affiché en temps réel<h4>
         
-        <h3>2. Options de base</h3>
-        - Spécifiez le nombre de lignes d'en-tête
-        - Choisissez si vous voulez répéter les en-têtes
-        - Définissez le nom du fichier de sortie
+        <h3>  II. Options de compilation</h3>
+        <h4>  - <b>Ligne de début de l'en-tête</b> : Spécifiez à quelle ligne commence l'en-tête dans vos fichiers<h4> 
+        <h4>  - <b>Nombre de lignes d'en-tête</b> : Indiquez combien de lignes constituent l'en-tête<h4> 
+        <h4>  - <b>Répéter les en-têtes</b> : Réinsère les en-têtes entre chaque fichier dans la compilation<h4> 
+        <h4>  - <b>Fusionner les en-têtes multi-niveaux</b> : Conserve la fusion des cellules d'en-tête<h4> 
+        <h4>  - <b>Ajouter les noms des fichiers sources</b> : Ajoute une colonne avec les noms des fichiers d'origine<h4> 
+        <h4>  - <b>Nom du fichier de sortie</b> : Définissez le nom du fichier compilé (.xlsx sera ajouté automatiquement)<h4> 
         
-        <h3>3. Options avancées</h3>
-        - Suppression des doublons
-        - Tri des données
-        - Formatage automatique
+        <h3>  III. Options avancées</h3>
         
-        <h3>4. Résolution des problèmes courants</h3>
-        - Assurez-vous que tous les fichiers ont la même structure
-        - Vérifiez que les en-têtes sont cohérents
-        - Fermez les fichiers Excel avant la compilation
+              Traitement des données :
+        <h4>  - <b>Supprimer les doublons</b> : Élimine les lignes identiques<h4> 
+        <h4>  - <b>Supprimer les lignes vides</b> : Retire les lignes ne contenant aucune donnée<h4> 
+        <h4>  - <b>Trier les données</b> : Trie le contenu selon une colonne spécifique<h4> 
+        <h4>  - <b>Colonne de tri</b> : Spécifiez la colonne pour le tri (ex: A pour première colonne)<h4> 
+        
+              Formatage :
+        <h4>  - <b>Ajuster la largeur des colonnes</b> : Adapte automatiquement la largeur selon le contenu<h4> 
+        <h4>  - <b>Figer la première ligne</b> : Maintient l'en-tête visible lors du défilement<h4> 
+        
+        <h3>  IV. Informations préliminaires</h3>
+        <h4>  - Pour le premier fichier uniquement, les informations situées avant l'en-tête sont préservées<h4> 
+        <h4>  - Ces informations sont copiées dans le fichier final<h4> 
+        
+        <h3>  V. Résolution des problèmes courants</h3>
+        <h4>  - Assurez-vous que tous les fichiers ont la même structure d'en-tête<h4>
+        <h4>  -  Vérifiez que la ligne de début d'en-tête est correctement définie<h4>
+        <h4>  -  Fermez les fichiers Excel avant la compilation<h4>
+        <h4>  -  En cas d'erreur, consultez le fichier log généré dans le répertoire de l'application<h4>
+        
+        <h3>  VI. Bonnes pratiques</h3>
+        <h4>  -  Faites une sauvegarde de vos fichiers avant la compilation<h4>
+        <h4>  -  Vérifiez le résultat après compilation<h4>
+        <h4>  -  Pour les gros fichiers, évitez de sélectionner trop de fichiers à la fois<h4>
+        <h4>  -  Utilisez des noms de fichiers explicites pour le fichier de sortie<h4>
+
         """
 
         help_label = QLabel(help_text)
         help_label.setWordWrap(True)
         help_label.setTextFormat(Qt.TextFormat.RichText)
+        help_label.setStyleSheet("QLabel { line-height: 1.5; }")
         
         scroll = QScrollArea()
         scroll.setWidget(help_label)
         scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background-color: white; }")
         
         layout.addWidget(scroll)
         tab.setLayout(layout)
