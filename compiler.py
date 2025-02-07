@@ -18,113 +18,131 @@ logging.basicConfig(
 )
 
 class CompilationWorker(QThread):
-    def __init__(self, files, directory, header_rows, add_filename=True, sort_data=False, sort_column=0, repeat_headers=False, parent=None):
+    def __init__(self, files, directory, header_start_row, header_rows, add_filename=True, sort_data=False, sort_column=0, repeat_headers=False, remove_empty_rows=False, parent=None):
         super().__init__(parent)
         self.files = files
         self.directory = directory
+        self.header_start_row = header_start_row
         self.header_rows = header_rows
         self.add_filename = add_filename
         self.sort_data = sort_data
         self.sort_column = sort_column
         self.repeat_headers = repeat_headers
+        self.remove_empty_rows = remove_empty_rows
 
     progress = pyqtSignal(int)
     error = pyqtSignal(str)      
     finished = pyqtSignal(tuple) 
 
     def run(self):
-            
-            combined_data = []
-            headers = None
-            merged_cells = []
+        combined_data = []
+        headers = None
+        merged_cells = []
+        preliminary_info = []
 
-            for i, file in enumerate(self.files):
-                try:
-                    file_path = os.path.join(self.directory, file)
-                    wb = openpyxl.load_workbook(file_path)
-                    ws = wb.active
+        for i, file in enumerate(self.files):
+            try:
+                file_path = os.path.join(self.directory, file)
+                
+                # Pour le premier fichier, on a besoin des merged_cells donc on ne met pas read_only
+                if i == 0:
+                    wb = openpyxl.load_workbook(file_path, data_only=True)
+                else:
+                    wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
                     
-                    # Capture des en-têtes du premier fichier
-                    if headers is None:
-                        headers = []
-                        for row in range(1, self.header_rows + 1):
-                            header_row = []
-                            for cell in ws[row]:
-                                header_row.append(cell.value)
-                            headers.append(header_row)
-                        
+                ws = wb.active
+                
+                # Capture des informations préliminaires du premier fichier
+                if i == 0 and self.header_start_row > 1:
+                    for row in range(1, self.header_start_row):
+                        row_data = []
+                        for cell in ws[row]:
+                            row_data.append(cell.value)
+                        preliminary_info.append(row_data)
+                
+                # Capture des en-têtes du premier fichier
+                if headers is None:
+                    headers = []
+                    for row in range(self.header_start_row, self.header_start_row + self.header_rows):
+                        header_row = []
+                        for cell in ws[row]:
+                            header_row.append(cell.value)
+                        headers.append(header_row)
+                    
+                    # Capture des merged_cells seulement pour le premier fichier
+                    if hasattr(ws, 'merged_cells'):
                         for merged_range in ws.merged_cells.ranges:
-                            if merged_range.min_row <= self.header_rows:
+                            if merged_range.min_row <= (self.header_start_row + self.header_rows):
                                 merged_cells.append(merged_range)
-                    
-                    # Ajout des données
-                    data = []
-                    
-                    # Si répétition des en-têtes est activée et ce n'est pas le premier fichier
-                    if self.repeat_headers and combined_data:
-                        # Ajout d'une ligne vide pour séparer les sections
-                        data.append([None] * len(headers[-1]))
-                        # Ajout des en-têtes
-                        for header_row in headers:
-                            row_data = header_row.copy()
-                            if self.add_filename:
-                                row_data.append(None)  # Pour la colonne du nom de fichier
-                            data.append(row_data)
-                    
-                    # Ajout des données du fichier
-                    for row in ws.iter_rows(min_row=self.header_rows + 1):
-                        row_data = [cell.value for cell in row]
+                
+                # Ajout des données
+                data = []
+                
+                # Si répétition des en-têtes est activée et ce n'est pas le premier fichier
+                if self.repeat_headers and combined_data:
+                    data.append([None] * len(headers[-1]))
+                    for header_row in headers:
+                        row_data = header_row.copy()
                         if self.add_filename:
-                            row_data.append(file)
+                            row_data.append(None)
                         data.append(row_data)
+                
+                # Ajout des données du fichier
+                for row in ws.iter_rows(min_row=self.header_start_row + self.header_rows):
+                    row_data = [cell.value for cell in row]
+                    if self.add_filename:
+                        row_data.append(file)
                     
-                    combined_data.extend(data)
-                    self.progress.emit(i + 1)
-                    
-                except Exception as e:
-                    logging.error(f"Erreur lors du traitement du fichier {file}: {str(e)}")
-                    self.error.emit(f"Erreur avec le fichier {file}: {str(e)}")
-                    continue
+                    # Vérifier si la ligne n'est pas vide avant de l'ajouter
+                    if not self.remove_empty_rows or not all(cell is None or str(cell).strip() == "" for cell in row_data[:-1]):  # Exclure la colonne du nom de fichier
+                        data.append(row_data)
+                
+                combined_data.extend(data)
+                self.progress.emit(i + 1)
+                
+                # Fermer le workbook pour libérer la mémoire
+                wb.close()
+                
+            except Exception as e:
+                logging.error(f"Erreur lors du traitement du fichier {file}: {str(e)}")
+                self.error.emit(f"Erreur avec le fichier {file}: {str(e)}")
+                continue
 
-            if combined_data and headers:
-                if self.add_filename:
-                    headers[-1].append("Fichier source")
-                
-                # Tri des données si l'option est activée
-                if self.sort_data and self.sort_column < len(headers[-1]):
-                    try:
-                        sort_idx = self.sort_column - 1
-                        # Ne pas trier les lignes d'en-tête répétées
-                        if self.repeat_headers:
-                            # Identifier les sections de données et les trier séparément
-                            sections = []
-                            current_section = []
-                            for row in combined_data:
-                                if all(cell is None for cell in row):  # Ligne vide = séparateur
-                                    if current_section:
-                                        sections.append(current_section)
-                                    current_section = []
-                                else:
-                                    current_section.append(row)
-                            if current_section:
-                                sections.append(current_section)
-                            
-                            # Trier chaque section séparément
-                            for section in sections:
-                                section.sort(key=lambda x: (x[sort_idx] is None, x[sort_idx]))
-                            
-                            # Reconstruire combined_data
-                            combined_data = []
-                            for i, section in enumerate(sections):
-                                if i > 0:  # Ajouter les séparateurs entre les sections
-                                    combined_data.append([None] * len(headers[-1]))
-                                combined_data.extend(section)
-                        else:
-                            combined_data.sort(key=lambda x: (x[sort_idx] is None, x[sort_idx]))
-                    except Exception as e:
-                        logging.warning(f"Erreur lors du tri : {str(e)}")
-                
-                self.finished.emit((headers, combined_data, merged_cells))
+        if combined_data and headers:
+            if self.add_filename:
+                headers[-1].append("Fichier source")
+            
+            # Tri des données si l'option est activée
+            if self.sort_data and self.sort_column < len(headers[-1]):
+                try:
+                    sort_idx = self.sort_column - 1
+                    if self.repeat_headers:
+                        sections = []
+                        current_section = []
+                        for row in combined_data:
+                            if all(cell is None for cell in row):
+                                if current_section:
+                                    sections.append(current_section)
+                                current_section = []
+                            else:
+                                current_section.append(row)
+                        if current_section:
+                            sections.append(current_section)
+                        
+                        for section in sections:
+                            section.sort(key=lambda x: (x[sort_idx] is None, x[sort_idx]))
+                        
+                        combined_data = []
+                        for i, section in enumerate(sections):
+                            if i > 0:
+                                combined_data.append([None] * len(headers[-1]))
+                            combined_data.extend(section)
+                    else:
+                        combined_data.sort(key=lambda x: (x[sort_idx] is None, x[sort_idx]))
+                except Exception as e:
+                    logging.warning(f"Erreur lors du tri : {str(e)}")
+            
+            self.finished.emit((preliminary_info, headers, combined_data, merged_cells))
 
 
 class ModernExcelCompilerApp(QMainWindow):
@@ -254,6 +272,15 @@ class ModernExcelCompilerApp(QMainWindow):
         group = QGroupBox("Sélection des fichiers")
         layout = QVBoxLayout()
 
+        # Date et heure
+        self.datetime_label = QLabel()
+        self.update_datetime()
+        
+        # Timer pour mettre à jour la date et l'heure
+        self.datetime_timer = QTimer()
+        self.datetime_timer.timeout.connect(self.update_datetime)
+        self.datetime_timer.start(1000)  # Mise à jour toutes les secondes
+
         # Sélection du répertoire
         dir_layout = QHBoxLayout()
         self.label_directory = QLabel("Aucun répertoire sélectionné")
@@ -269,12 +296,15 @@ class ModernExcelCompilerApp(QMainWindow):
         self.list_files.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         
         # Options de sélection
+        
         selection_layout = QHBoxLayout()
         self.checkbox_all_files = QCheckBox("Sélectionner tous les fichiers")
         self.label_file_count = QLabel("0 fichier(s) sélectionné(s)")
         selection_layout.addWidget(self.checkbox_all_files)
         selection_layout.addStretch()
         selection_layout.addWidget(self.label_file_count)
+        selection_layout.addStretch()
+        selection_layout.addWidget(self.datetime_label)
         
         layout.addLayout(selection_layout)
         layout.addWidget(self.list_files)
@@ -285,9 +315,20 @@ class ModernExcelCompilerApp(QMainWindow):
         group = QGroupBox("Options de compilation")
         layout = QVBoxLayout()
 
-        # En-têtes
+       # Ligne de début des en-têtes
+        header_start_layout = QHBoxLayout()
+        self.label_header_start = QLabel("Ligne de début des en-têtes :")
+        self.spinbox_header_start = QSpinBox()
+        self.spinbox_header_start.setMinimum(1)
+        self.spinbox_header_start.setMaximum(20)
+        self.spinbox_header_start.setValue(1)
+        header_start_layout.addWidget(self.label_header_start)
+        header_start_layout.addWidget(self.spinbox_header_start)
+        header_start_layout.addStretch()
+
+        # Nombre de lignes d'en-tête
         header_layout = QHBoxLayout()
-        self.label_header = QLabel("Lignes d'en-tête :")
+        self.label_header = QLabel("Nombre de lignes d'en-tête :")
         self.spinbox_header = QSpinBox()
         self.spinbox_header.setMinimum(1)
         self.spinbox_header.setMaximum(15)
@@ -300,30 +341,36 @@ class ModernExcelCompilerApp(QMainWindow):
         self.checkbox_repeat_header = QCheckBox("Répéter les en-têtes pour chaque fichier")
         self.checkbox_merge_headers = QCheckBox("Fusionner les en-têtes multi-niveaux")
         self.checkbox_add_filename = QCheckBox("Ajouter le nom du fichier source")
-        self.checkbox_add_filename.setChecked(True)  # Coché par défaut
+        self.checkbox_add_filename.setChecked(False)  # Décoché par défaut
         
+        
+
         # Nom du fichier de sortie
+        options_layout1 = QHBoxLayout()
+        options_layout2 = QHBoxLayout()
         output_layout = QHBoxLayout()
         self.label_output_name = QLabel("Nom du fichier de sortie :")
         self.lineedit_output_name = QLineEdit("compilation.xlsx")
         output_layout.addWidget(self.label_output_name)
         output_layout.addWidget(self.lineedit_output_name)
 
-        # Date et heure
-        self.datetime_label = QLabel()
-        self.update_datetime()
-        
-        # Timer pour mettre à jour la date et l'heure
-        self.datetime_timer = QTimer()
-        self.datetime_timer.timeout.connect(self.update_datetime)
-        self.datetime_timer.start(1000)  # Mise à jour toutes les secondes
 
-        layout.addLayout(header_layout)
-        layout.addWidget(self.checkbox_repeat_header)
-        layout.addWidget(self.checkbox_merge_headers)
-        layout.addWidget(self.checkbox_add_filename)
+        options_layout1.addLayout(header_start_layout)
+        options_layout1.addStretch()
+        options_layout1.addWidget(self.checkbox_repeat_header)
+        options_layout1.addStretch()
+        options_layout1.addWidget(self.checkbox_add_filename)
+
+        options_layout2.addLayout(header_layout)
+        options_layout2.addStretch()
+        options_layout2.addWidget(self.checkbox_merge_headers)
+        options_layout2.addStretch()
+        
+        
+
+        layout.addLayout(options_layout1)
+        layout.addLayout(options_layout2)
         layout.addLayout(output_layout)
-        layout.addWidget(self.datetime_label)
         group.setLayout(layout)
         return group
 
@@ -342,6 +389,9 @@ class ModernExcelCompilerApp(QMainWindow):
 
         self.checkbox_remove_duplicates = QCheckBox("Supprimer les doublons")
         self.checkbox_remove_duplicates.setChecked(True)
+        
+        self.checkbox_remove_empty_rows = QCheckBox("Supprimer les lignes entièrement vides")
+        self.checkbox_remove_empty_rows.setChecked(False)
 
         sort_layout = QVBoxLayout()
         self.checkbox_sort_data = QCheckBox("Trier les données")
@@ -358,6 +408,7 @@ class ModernExcelCompilerApp(QMainWindow):
         sort_layout.addLayout(sort_options)
 
         data_layout.addWidget(self.checkbox_remove_duplicates)
+        data_layout.addWidget(self.checkbox_remove_empty_rows)
         data_layout.addLayout(sort_layout)
         data_group.setLayout(data_layout)
 
@@ -369,7 +420,7 @@ class ModernExcelCompilerApp(QMainWindow):
         self.checkbox_auto_width.setChecked(True)
         
         self.checkbox_freeze_header = QCheckBox("Figer la première ligne")
-        self.checkbox_freeze_header.setChecked(True)
+        self.checkbox_freeze_header.setChecked(False)
 
         format_layout.addWidget(self.checkbox_auto_width)
         format_layout.addWidget(self.checkbox_freeze_header)
@@ -457,44 +508,37 @@ class ModernExcelCompilerApp(QMainWindow):
             self.list_files.item(i).setSelected(self.checkbox_all_files.isChecked())
 
     def compile_files(self):
-        if not self._validate_compilation():
-            return
+            
+            if not self._validate_compilation():
+                return
+            self.button_compile.setEnabled(False)
+            self.progress_bar.setVisible(True)
+            self.status_label.setText("Compilation en cours...")
+            
+            selected_files = [item.text() for item in self.list_files.selectedItems()]
+            self.progress_bar.setMaximum(len(selected_files))
+            
+            sort_column = 1
+            if self.checkbox_sort_data.isChecked():
+                col_letter = self.lineedit_sort_column.text().upper()
+                sort_column = self._column_letter_to_number(col_letter)
 
-        self.button_compile.setEnabled(False)
-        self.progress_bar.setVisible(True)
-        self.status_label.setText("Compilation en cours...")
-        
-        selected_files = [item.text() for item in self.list_files.selectedItems()]
-        self.progress_bar.setMaximum(len(selected_files))
-        
-        # Récupération de la colonne de tri
-        """
-        sort_column = 1  # Valeur par défaut
-        if self.checkbox_sort_data.isChecked():
-            try:
-                sort_column = int(self.lineedit_sort_column.text())
-            except ValueError:
-                sort_column = 1
-        """
-        sort_column = 1
-        if self.checkbox_sort_data.isChecked():
-            col_letter = self.lineedit_sort_column.text().upper()
-            sort_column = self._column_letter_to_number(col_letter)
-
-        self.compilation_worker = CompilationWorker(
-            files=selected_files,
-            directory=self.directory,
-            header_rows=self.spinbox_header.value(),
-            add_filename=self.checkbox_add_filename.isChecked(),
-            sort_data=self.checkbox_sort_data.isChecked(),
-            sort_column=sort_column,
-            repeat_headers=self.checkbox_repeat_header.isChecked(),
-            parent=self
-        )
-        self.compilation_worker.progress.connect(self.update_progress)
-        self.compilation_worker.finished.connect(self.save_compilation)
-        self.compilation_worker.error.connect(self.show_error)
-        self.compilation_worker.start()
+            self.compilation_worker = CompilationWorker(
+                files=selected_files,
+                directory=self.directory,
+                header_start_row=self.spinbox_header_start.value(),
+                header_rows=self.spinbox_header.value(),
+                add_filename=self.checkbox_add_filename.isChecked(),
+                sort_data=self.checkbox_sort_data.isChecked(),
+                sort_column=sort_column,
+                repeat_headers=self.checkbox_repeat_header.isChecked(),
+                remove_empty_rows=self.checkbox_remove_empty_rows.isChecked(),
+                parent=self
+            )
+            self.compilation_worker.progress.connect(self.update_progress)
+            self.compilation_worker.finished.connect(self.save_compilation)
+            self.compilation_worker.error.connect(self.show_error)
+            self.compilation_worker.start()
     
     def _column_letter_to_number(self, column_letter):
         result = 0
@@ -531,7 +575,7 @@ class ModernExcelCompilerApp(QMainWindow):
 
     def save_compilation(self, compilation_data):
             try:
-                headers, data, merged_cells = compilation_data
+                preliminary_info, headers, data, merged_cells = compilation_data
                 output_name = self.lineedit_output_name.text()
                 if not output_name.lower().endswith(('.xlsx', '.xls')):
                     output_name += '.xlsx'
@@ -542,34 +586,47 @@ class ModernExcelCompilerApp(QMainWindow):
                 wb = openpyxl.Workbook()
                 ws = wb.active
                 
+                # Écriture des informations préliminaires
+                current_row = 1
+                for row_data in preliminary_info:
+                    for col_idx, value in enumerate(row_data, 1):
+                        cell = ws.cell(row=current_row, column=col_idx, value=value)
+                        cell.font = Font(italic=True)
+                    current_row += 1
+                
                 # Écriture des en-têtes
-                for row_idx, header_row in enumerate(headers, 1):
+                header_start = current_row
+                for header_row in headers:
                     for col_idx, value in enumerate(header_row, 1):
-                        cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                        cell = ws.cell(row=current_row, column=col_idx, value=value)
                         cell.font = Font(bold=True, color="FFFFFF")
                         cell.fill = PatternFill(start_color='2E7D32', end_color='2E7D32', fill_type='solid')
                         cell.alignment = Alignment(horizontal='center', vertical='center')
+                    current_row += 1
                 
-                # Application des fusions de cellules si l'option est activée
+                # Application des fusions de cellules
                 if self.checkbox_merge_headers.isChecked():
                     for merged_range in merged_cells:
-                        ws.merge_cells(
-                            start_row=merged_range.min_row,
-                            start_column=merged_range.min_col,
-                            end_row=merged_range.max_row,
-                            end_column=merged_range.max_col
+                        # Ajuster les numéros de ligne pour tenir compte des informations préliminaires
+                        adjusted_range = openpyxl.worksheet.cell_range.CellRange(
+                            min_col=merged_range.min_col,
+                            min_row=merged_range.min_row - self.spinbox_header_start.value() + header_start,
+                            max_col=merged_range.max_col,
+                            max_row=merged_range.max_row - self.spinbox_header_start.value() + header_start
                         )
+                        ws.merge_cells(range_string=adjusted_range.coord)
                 
                 # Écriture des données
-                for row_idx, row_data in enumerate(data, len(headers) + 1):
+                for row_data in data:
                     for col_idx, value in enumerate(row_data, 1):
-                        cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                        cell = ws.cell(row=current_row, column=col_idx, value=value)
                         cell.border = Border(
                             left=Side(border_style='thin'),
                             right=Side(border_style='thin'),
                             top=Side(border_style='thin'),
                             bottom=Side(border_style='thin')
                         )
+                    current_row += 1
                 
                 # Ajustement automatique des colonnes
                 if self.checkbox_auto_width.isChecked():
@@ -587,7 +644,7 @@ class ModernExcelCompilerApp(QMainWindow):
                 
                 # Figer les volets
                 if self.checkbox_freeze_header.isChecked():
-                    ws.freeze_panes = ws.cell(row=len(headers) + 1, column=1)
+                    ws.freeze_panes = ws.cell(row=len(preliminary_info) + len(headers) + 1, column=1)
                 
                 wb.save(output_path)
                 
@@ -607,6 +664,8 @@ class ModernExcelCompilerApp(QMainWindow):
             finally:
                 self.button_compile.setEnabled(True)
                 self.progress_bar.setVisible(False)
+
+#export default CompilationWorker
 
 if __name__ == "__main__":
     try:
