@@ -1,42 +1,54 @@
 """
 Excel Compiler Application
-Version: 2.0
+Version: 3.0
 Auteur: GOUNOU N'GOBI Chabi Zimé (Data Manager, Data Analyst)
-Améliorations: Mars 2025
+Améliorations: Juin 2025
 
 Application pour compiler plusieurs fichiers Excel en un seul fichier avec diverses options de formatage.
+Nouvelles fonctionnalités:
+- Prévisualisation des données
+- Internationalisation complète
+- Options de format de date
 """
 
 import sys
 import os
+
 import pandas as pd
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QTabWidget,
     QGroupBox, QLabel, QSpinBox, QCheckBox, QLineEdit, QPushButton, QListWidget,
     QProgressBar, QMessageBox, QFileDialog, QListWidgetItem, QStyle, QProgressDialog,
     QTableWidget, QTableWidgetItem, QHeaderView, QScrollArea, QDialog, QComboBox,
-    QStyledItemDelegate, QStyleOptionButton, QStyle, QGridLayout
+    QStyledItemDelegate, QStyleOptionButton, QGridLayout, QRadioButton,
+    QButtonGroup, QSplitter, QToolBar, QMenu, QMenuBar
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QIcon, QFont, QPalette, QColor, QBrush
-from openpyxl.styles import Border, Side, PatternFill, Font, Alignment
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize, QSettings, QTranslator, QLocale
+from PyQt6.QtGui import QIcon, QFont, QPalette, QColor, QBrush, QKeySequence, QAction
+from openpyxl.styles import Border, Side, PatternFill, Font, Alignment, numbers
 from openpyxl.utils import get_column_letter
 import openpyxl
 import logging
 import csv
+import json
 import unittest
 from datetime import datetime
-from typing import List, Tuple, Dict, Optional, Any, Union
+from typing import List, Tuple, Dict, Optional, Any, Union, Set
 import traceback
+
+
+def resource_path(relative_path):
+        if hasattr(sys, '_MEIPASS'):
+            return os.path.join(sys._MEIPASS, relative_path)
+        return os.path.join(os.path.abspath("."), relative_path)
+
 
 # Constants for styles
 COLORS = {
     "PRIMARY": "2e7d32",
     "PRIMARY_DARK": "2e7d32",
-    #"PRIMARY_DARK": "1b5e20", 
     "PRIMARY_LIGHT": "4caf50",  
     "ACCENT": "c8e6c9",
-    #"BACKGROUND": "f5f5f5",
     "BACKGROUND": "2e7d32",
     "LIGHT_TEXT": "FFFFFF",
     "DARK_TEXT": "212121",
@@ -49,12 +61,10 @@ COLORS = {
 # Pour openpyxl, ajoutez FF au début pour l'opacité
 EXCEL_COLORS = {
     "PRIMARY": "FF2e7d32",
-    #"PRIMARY_DARK": "FF1b5e20",
     "PRIMARY_DARK": "FF2e7d32",
     "PRIMARY_LIGHT": "FF4caf50",
     "ACCENT": "FFc8e6c9",
     "BACKGROUND":"FF2e7d32",
-    #"BACKGROUND": "FFf5f5f5",
     "LIGHT_TEXT": "FFFFFFFF",
     "DARK_TEXT": "FF212121",
     "BORDER": "FFe0e0e0",
@@ -70,6 +80,19 @@ FONT_SIZES = {
     "HEADER": 14
 }
 
+# Formats de date disponibles
+DATE_FORMATS = {
+    "STANDARD": {"format": "yyyy-MM-dd", "code": "yyyy-mm-dd", "excel_format": "yyyy-mm-dd"},
+    "FRENCH": {"format": "dd/MM/yyyy", "code": "dd/mm/yyyy", "excel_format": "dd/mm/yyyy"},
+    "US": {"format": "MM/dd/yyyy", "code": "mm/dd/yyyy", "excel_format": "mm/dd/yyyy"},
+    "DATETIME": {"format": "yyyy-MM-dd HH:mm:ss", "code": "yyyy-mm-dd hh:mm:ss", "excel_format": "yyyy-mm-dd hh:mm:ss"},
+    "DATETIME_FRENCH": {"format": "dd/MM/yyyy HH:mm:ss", "code": "dd/mm/yyyy hh:mm:ss", "excel_format": "dd/mm/yyyy hh:mm:ss"},
+    "DATE_ONLY": {"format": "yyyy-MM-dd", "code": "yyyy-mm-dd", "excel_format": "yyyy-mm-dd"},
+    "TIME_ONLY": {"format": "HH:mm:ss", "code": "hh:mm:ss", "excel_format": "hh:mm:ss"},
+    "SHORT": {"format": "dd/MM/yy", "code": "dd/mm/yy", "excel_format": "dd/mm/yy"},
+    "CUSTOM": {"format": "", "code": "", "excel_format": ""}
+}
+
 # Configuration du logging
 LOG_FILE = f'excel_compiler_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
 logging.basicConfig(
@@ -78,7 +101,427 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+# Dictionnaires pour l'internationalisation
+TRANSLATIONS = {
+    "fr": {
+        "app_title": "Compilateur Excel Professionnel",
+        "file_selection": "Sélection des fichiers",
+        "compilation_options": "Options de compilation",
+        "advanced_options": "Options avancées",
+        "help": "Aide",
+        "about": "À propos",
+        "preview": "Aperçu",
+        "date_format": "Format de date",
+        "languages": "Langues",
+        "no_directory": "Aucun répertoire sélectionné",
+        "choose_directory": "Choisir un répertoire",
+        "select_all_files": "Sélectionner tous les fichiers",
+        "files_selected": "{} fichier(s) sélectionné(s)",
+        "date_time": "Date et heure : {}",
+        "header_start_row": "Ligne de début des en-têtes :",
+        "header_rows": "Nombre de lignes d'en-tête :",
+        "repeat_headers": "Répéter les en-têtes pour chaque fichier",
+        "merge_headers": "Fusionner les en-têtes multi-niveaux",
+        "add_filename": "Ajouter les noms des fichiers sources",
+        "output_filename": "Nom du fichier de sortie :",
+        "enable_verification": "Activer la vérification préliminaire des fichiers",
+        "start_compilation": "Lancer la compilation",
+        "remove_duplicates": "Supprimer les doublons",
+        "remove_empty_rows": "Supprimer les lignes entièrement vides",
+        "sort_data": "Trier les données",
+        "sort_column": "Colonne de tri (ex: A, B, C) :",
+        "auto_width": "Ajuster automatiquement la largeur des colonnes",
+        "freeze_headers": "Figer les en-têtes",
+        "file_formats": "Formats de fichiers supportés",
+        "excel_files": "Fichiers Excel (.xlsx, .xls)",
+        "csv_files": "Fichiers CSV (.csv)",
+        "preview_data": "Prévisualiser les données avant compilation",
+        "refresh_preview": "Actualiser l'aperçu",
+        "preview_limited": "Aperçu limité aux {} premières lignes",
+        "date_format_options": "Options de format de date",
+        "date_format_standard": "Standard (AAAA-MM-JJ)",
+        "date_format_french": "Français (JJ/MM/AAAA)",
+        "date_format_us": "Américain (MM/JJ/AAAA)",
+        "date_format_datetime": "Date et heure (AAAA-MM-JJ HH:MM:SS)",
+        "date_format_date_only": "Date uniquement (AAAA-MM-JJ)",
+        "date_format_time_only": "Heure uniquement (HH:MM:SS)",
+        "date_format_short": "Format court (JJ/MM/AA)",
+        "date_format_custom": "Personnalisé :",
+        "language": "Langue",
+        "french": "Français",
+        "english": "Anglais",
+        "apply": "Appliquer",
+        "cancel": "Annuler",
+        "ok": "OK",
+        "error": "Erreur",
+        "success": "Succès",
+        "warning": "Avertissement",
+        "no_files_selected": "Aucun fichier sélectionné",
+        "select_files_message": "Veuillez sélectionner au moins un fichier à compiler.",
+        "compilation_in_progress": "Compilation en cours...",
+        "compilation_complete": "Compilation terminée. Fichier enregistré : {}",
+        "compilation_failed": "Échec: {}",
+        "no_data": "Aucune donnée à écrire.",
+        "no_data_message": "Aucune donnée valide n'a pu être compilée.",
+        "file_open_error": "Le fichier de sortie est ouvert dans une autre application.",
+        "file_open_error_message": "Le fichier de sortie est ouvert dans une autre application. Veuillez le fermer et réessayer.",
+        "verification_title": "Rapport de vérification des fichiers",
+        "verification_header": "Vérification de {} fichiers",
+        "compilable": "Compilables: {} ({}%)",
+        "not_compilable": "Non compilables: {} ({}%)",
+        "non_compilable_files": "Fichiers non compilables",
+        "compilable_files": "Fichiers compilables",
+        "error_resolution_tips": "Ces fichiers ne peuvent pas être compilés pour les raisons indiquées. Voici quelques conseils pour résoudre les problèmes courants :",
+        "open_file_tip": "Fichier ouvert: Fermez le fichier dans Excel et réessayez",
+        "protected_file_tip": "Fichier protégé: Désactivez la protection dans Excel (Révision > Protéger la feuille)",
+        "header_structure_tip": "Structure d'en-tête incompatible: Vérifiez que le nombre de lignes d'en-tête est correct",
+        "encoding_error_tip": "Erreur d'encodage: Réenregistrez le fichier CSV avec l'encodage UTF-8",
+        "ignore_non_compilable": "Ignorer les non compilables et compiler",
+        "filename": "Nom du fichier",
+        "detected_issue": "Problème détecté",
+        "compilation_report": "Rapport de compilation",
+        "compilation_result": "Résultat de la compilation",
+        "generated_file": "Fichier généré:",
+        "compilation_rate": "Taux de compilation: {}% ({}/{})",
+        "compiled_files": "Fichiers compilés ({})",
+        "not_compiled_files": "Fichiers non compilés ({})",
+        "all_files_compiled": "Tous les fichiers ont été compilés avec succès !",
+        "ip_warning_title": "Propriété Intellectuelle - Avertissement",
+        "ip_warning_content": "Cette application <b>Compilateur Excel Professionnel</b> est la propriété intellectuelle exclusive de:",
+        "developer_name": "GOUNOU N'GOBI Chabi Zimé",
+        "developer_title": "Data Manager & Data Analyst",
+        "copyright_notice": "Tous droits réservés. Cette application est protégée par les lois sur le droit d'auteur et les traités internationaux sur la propriété intellectuelle.",
+        "warning_important": "AVERTISSEMENT IMPORTANT:",
+        "unauthorized_reproduction": "Toute reproduction non autorisée, distribution ou modification de cette application est strictement interdite.",
+        "license_terms": "L'utilisation de cette application est soumise aux termes de la licence accordée par l'auteur.",
+        "contact_info": "Pour toute question concernant les droits d'utilisation ou pour signaler une violation de la propriété intellectuelle, veuillez contacter l'auteur à l'adresse : zimkada@gmail.com.",
+        "accept_conditions": "J'accepte ces conditions",
+        "quit_app": "Quitter l'application",
+        "file_menu": "Fichier",
+        "edit_menu": "Édition",
+        "tools_menu": "Outils",
+        "language_menu": "Langue",
+        "help_menu": "Aide",
+        "open_dir": "Ouvrir un répertoire...",
+        "save_settings": "Enregistrer les paramètres",
+        "load_settings": "Charger les paramètres",
+        "exit": "Quitter",
+        "select_all": "Sélectionner tout",
+        "deselect_all": "Désélectionner tout",
+        "invert_selection": "Inverser la sélection",
+        "preview_tool": "Aperçu des données",
+        "compile_tool": "Compiler les fichiers",
+        "about_help": "À propos...",
+        "settings_saved": "Paramètres sauvegardés avec succès",
+        "settings_loaded": "Paramètres chargés avec succès"
+    },
+    "en": {
+        "app_title": "Professional Excel Compiler",
+        "file_selection": "File Selection",
+        "compilation_options": "Compilation Options",
+        "advanced_options": "Advanced Options",
+        "help": "Help",
+        "about": "About",
+        "preview": "Preview",
+        "date_format": "Date Format",
+        "languages": "Languages",
+        "no_directory": "No directory selected",
+        "choose_directory": "Choose directory",
+        "select_all_files": "Select all files",
+        "files_selected": "{} file(s) selected",
+        "date_time": "Date and time: {}",
+        "header_start_row": "Header start row:",
+        "header_rows": "Number of header rows:",
+        "repeat_headers": "Repeat headers for each file",
+        "merge_headers": "Merge multi-level headers",
+        "add_filename": "Add source filenames",
+        "output_filename": "Output filename:",
+        "enable_verification": "Enable preliminary file verification",
+        "start_compilation": "Start compilation",
+        "remove_duplicates": "Remove duplicates",
+        "remove_empty_rows": "Remove empty rows",
+        "sort_data": "Sort data",
+        "sort_column": "Sort column (e.g. A, B, C):",
+        "auto_width": "Auto-adjust column width",
+        "freeze_headers": "Freeze headers",
+        "file_formats": "Supported file formats",
+        "excel_files": "Excel files (.xlsx, .xls)",
+        "csv_files": "CSV files (.csv)",
+        "preview_data": "Preview data before compilation",
+        "refresh_preview": "Refresh preview",
+        "preview_limited": "Preview limited to first {} rows",
+        "date_format_options": "Date format options",
+        "date_format_standard": "Standard (YYYY-MM-DD)",
+        "date_format_french": "French (DD/MM/YYYY)",
+        "date_format_us": "US (MM/DD/YYYY)",
+        "date_format_datetime": "Date and time (YYYY-MM-DD HH:MM:SS)",
+        "date_format_date_only": "Date only (YYYY-MM-DD)",
+        "date_format_time_only": "Time only (HH:MM:SS)",
+        "date_format_short": "Short format (DD/MM/YY)",
+        "date_format_custom": "Custom:",
+        "language": "Language:",
+        "french": "French",
+        "english": "English",
+        "apply": "Apply",
+        "cancel": "Cancel",
+        "ok": "OK",
+        "error": "Error",
+        "success": "Success",
+        "warning": "Warning",
+        "no_files_selected": "No files selected",
+        "select_files_message": "Please select at least one file to compile.",
+        "compilation_in_progress": "Compilation in progress...",
+        "compilation_complete": "Compilation complete. File saved: {}",
+        "compilation_failed": "Failed: {}",
+        "no_data": "No data to write.",
+        "no_data_message": "No valid data could be compiled.",
+        "file_open_error": "The output file is open in another application.",
+        "file_open_error_message": "The output file is open in another application. Please close it and try again.",
+        "verification_title": "File Verification Report",
+        "verification_header": "Verification of {} files",
+        "compilable": "Compilable: {} ({}%)",
+        "not_compilable": "Not compilable: {} ({}%)",
+        "non_compilable_files": "Non-compilable files",
+        "compilable_files": "Compilable files",
+        "error_resolution_tips": "These files cannot be compiled for the reasons indicated. Here are some tips to resolve common problems:",
+        "open_file_tip": "Open file: Close the file in Excel and try again",
+        "protected_file_tip": "Protected file: Disable protection in Excel (Review > Protect Sheet)",
+        "header_structure_tip": "Incompatible header structure: Check that the number of header rows is correct",
+        "encoding_error_tip": "Encoding error: Resave the CSV file with UTF-8 encoding",
+        "ignore_non_compilable": "Ignore non-compilable and compile",
+        "filename": "Filename",
+        "detected_issue": "Detected issue",
+        "compilation_report": "Compilation Report",
+        "compilation_result": "Compilation Result",
+        "generated_file": "Generated file:",
+        "compilation_rate": "Compilation rate: {}% ({}/{})",
+        "compiled_files": "Compiled files ({})",
+        "not_compiled_files": "Files not compiled ({})",
+        "all_files_compiled": "All files were successfully compiled!",
+        "ip_warning_title": "Intellectual Property - Warning",
+        "ip_warning_content": "This <b>Professional Excel Compiler</b> application is the exclusive intellectual property of:",
+        "developer_name": "GOUNOU N'GOBI Chabi Zimé",
+        "developer_title": "Data Manager & Data Analyst",
+        "copyright_notice": "All rights reserved. This application is protected by copyright laws and international intellectual property treaties.",
+        "warning_important": "IMPORTANT WARNING:",
+        "unauthorized_reproduction": "Any unauthorized reproduction, distribution or modification of this application is strictly prohibited.",
+        "license_terms": "Use of this application is subject to the terms of the license granted by the author.",
+        "contact_info": "For any questions regarding usage rights or to report a violation of intellectual property, please contact the author at: zimkada@gmail.com.",
+        "accept_conditions": "I accept these conditions",
+        "quit_app": "Quit application",
+        "file_menu": "File",
+        "edit_menu": "Edit",
+        "tools_menu": "Tools",
+        "language_menu": "Language",
+        "help_menu": "Help",
+        "open_dir": "Open directory...",
+        "save_settings": "Save settings",
+        "load_settings": "Load settings",
+        "exit": "Exit",
+        "select_all": "Select all",
+        "deselect_all": "Deselect all",
+        "invert_selection": "Invert selection",
+        "preview_tool": "Data preview",
+        "compile_tool": "Compile files",
+        "about_help": "About...",
+        "settings_saved": "Settings saved successfully",
+        "settings_loaded": "Settings loaded successfully"
+    }
+}
 
+class TranslationManager:
+    """
+    Gestionnaire de traduction pour l'application.
+    Permet de changer la langue de l'interface utilisateur.
+    """
+    _instance = None
+    
+    def __new__(cls):
+        """Implémentation du pattern Singleton."""
+        if cls._instance is None:
+            cls._instance = super(TranslationManager, cls).__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
+    
+    def _initialize(self):
+        """Initialise le gestionnaire de traduction."""
+        self.current_language = "fr"  # Langue par défaut
+        self.translations = TRANSLATIONS
+        self.language_changed_callbacks = []
+    
+    def set_language(self, language_code):
+        """
+        Change la langue courante.
+        
+        Args:
+            language_code: Code de la langue (fr, en)
+        """
+        if language_code in self.translations:
+            self.current_language = language_code
+            
+            # Appeler tous les callbacks enregistrés
+            for callback in self.language_changed_callbacks:
+                callback()
+    
+    def get_text(self, key, *args):
+        """
+        Obtient le texte traduit pour une clé donnée.
+        
+        Args:
+            key: Clé de traduction
+            *args: Arguments de formatage optionnels
+            
+        Returns:
+            Texte traduit
+        """
+        if key in self.translations[self.current_language]:
+            text = self.translations[self.current_language][key]
+            if args:
+                return text.format(*args)
+            return text
+        return key
+    
+    def register_language_changed_callback(self, callback):
+        """
+        Enregistre un callback à appeler lorsque la langue change.
+        
+        Args:
+            callback: Fonction à appeler
+        """
+        if callback not in self.language_changed_callbacks:
+            self.language_changed_callbacks.append(callback)
+    
+    def unregister_language_changed_callback(self, callback):
+        """
+        Supprime un callback enregistré.
+        
+        Args:
+            callback: Fonction à supprimer
+        """
+        if callback in self.language_changed_callbacks:
+            self.language_changed_callbacks.remove(callback)
+
+class SettingsManager:
+    """
+    Gestionnaire des paramètres de l'application.
+    Permet de sauvegarder et charger les préférences utilisateur.
+    """
+    _instance = None
+    
+    def __new__(cls):
+        """Implémentation du pattern Singleton."""
+        if cls._instance is None:
+            cls._instance = super(SettingsManager, cls).__new__(cls)
+            cls._instance._initialize()
+        return cls._instance
+    
+    def _initialize(self):
+        """Initialise le gestionnaire de paramètres."""
+        self.settings = QSettings("GounouNGobi", "ExcelCompiler")
+    
+    def save_settings(self, window):
+        """
+        Sauvegarde les paramètres actuels de l'application.
+        
+        Args:
+            window: Fenêtre principale de l'application
+        """
+        settings = self.settings
+        
+        # Sauvegarde des options générales
+        settings.setValue("language", TranslationManager().current_language)
+        settings.setValue("headerStartRow", window.spinbox_header_start.value())
+        settings.setValue("headerRows", window.spinbox_header.value())
+        settings.setValue("repeatHeaders", window.checkbox_repeat_header.isChecked())
+        settings.setValue("mergeHeaders", window.checkbox_merge_headers.isChecked())
+        settings.setValue("addFilename", window.checkbox_add_filename.isChecked())
+        settings.setValue("outputFilename", window.lineedit_output_name.text())
+        settings.setValue("verifyFiles", window.checkbox_verify_files.isChecked())
+        
+        # Options avancées
+        settings.setValue("removeDuplicates", window.checkbox_remove_duplicates.isChecked())
+        settings.setValue("removeEmptyRows", window.checkbox_remove_empty_rows.isChecked())
+        settings.setValue("sortData", window.checkbox_sort_data.isChecked())
+        settings.setValue("sortColumn", window.lineedit_sort_column.text())
+        settings.setValue("autoWidth", window.checkbox_auto_width.isChecked())
+        settings.setValue("freezeHeader", window.checkbox_freeze_header.isChecked())
+        settings.setValue("csvSupport", window.checkbox_csv.isChecked())
+        
+        # Option de format de date
+        settings.setValue("dateFormat", window.date_format)
+        
+        # Sauvegarde du dernier répertoire utilisé
+        if window.directory:
+            settings.setValue("lastDirectory", window.directory)
+        
+        settings.sync()
+    
+    def load_settings(self, window):
+        """
+        Charge les paramètres sauvegardés.
+        
+        Args:
+            window: Fenêtre principale de l'application
+            
+        Returns:
+            bool: True si des paramètres ont été chargés, False sinon
+        """
+        settings = self.settings
+        
+        # Vérifier si des paramètres existent
+        if not settings.contains("headerStartRow"):
+            return False
+        
+        # Chargement de la langue
+        language = settings.value("language", "fr")
+        TranslationManager().set_language(language)
+        
+        # Chargement des options générales
+        window.spinbox_header_start.setValue(int(settings.value("headerStartRow", 1)))
+        window.spinbox_header.setValue(int(settings.value("headerRows", 1)))
+        window.checkbox_repeat_header.setChecked(self._to_bool(settings.value("repeatHeaders", False)))
+        window.checkbox_merge_headers.setChecked(self._to_bool(settings.value("mergeHeaders", False)))
+        window.checkbox_add_filename.setChecked(self._to_bool(settings.value("addFilename", True)))
+        window.lineedit_output_name.setText(settings.value("outputFilename", "compilation.xlsx"))
+        window.checkbox_verify_files.setChecked(self._to_bool(settings.value("verifyFiles", True)))
+        
+        # Options avancées
+        window.checkbox_remove_duplicates.setChecked(self._to_bool(settings.value("removeDuplicates", True)))
+        window.checkbox_remove_empty_rows.setChecked(self._to_bool(settings.value("removeEmptyRows", False)))
+        window.checkbox_sort_data.setChecked(self._to_bool(settings.value("sortData", False)))
+        window.lineedit_sort_column.setText(settings.value("sortColumn", "A"))
+        window.lineedit_sort_column.setEnabled(window.checkbox_sort_data.isChecked())
+        window.checkbox_auto_width.setChecked(self._to_bool(settings.value("autoWidth", True)))
+        window.checkbox_freeze_header.setChecked(self._to_bool(settings.value("freezeHeader", True)))
+        window.checkbox_csv.setChecked(self._to_bool(settings.value("csvSupport", True)))
+        
+        # Option de format de date
+        window.date_format = settings.value("dateFormat", "FRENCH")
+    
+        
+        # Chargement du dernier répertoire utilisé
+        last_directory = settings.value("lastDirectory", "")
+        if last_directory and os.path.isdir(last_directory):
+            window.directory = last_directory
+            window.label_directory.setText(last_directory)
+            window.load_files()
+        
+        return True
+    
+    def _to_bool(self, value):
+        """
+        Convertit une valeur en booléen.
+        
+        Args:
+            value: Valeur à convertir
+            
+        Returns:
+            bool: Valeur convertie
+        """
+        if isinstance(value, bool):
+            return value
+        return value.lower() in ("true", "1", "yes", "y", "t")
+    
 class FileVerification:
     """
     Classe utilitaire pour vérifier la compatibilité des fichiers Excel et CSV.
@@ -176,7 +619,7 @@ class CompilationWorker(QThread):
     
     def __init__(self, files, directory, header_start_row, header_rows, add_filename=True,
                  sort_data=False, sort_column=0, repeat_headers=False, remove_empty_rows=False,
-                 remove_duplicates=False, parent=None):
+                 remove_duplicates=False, date_format="FRENCH", parent=None):
         """
         Initialisation du worker de compilation.
         
@@ -191,6 +634,8 @@ class CompilationWorker(QThread):
             repeat_headers: Répéter les en-têtes pour chaque fichier
             remove_empty_rows: Supprimer les lignes vides
             remove_duplicates: Supprimer les doublons
+            date_format: Format de date à utiliser
+            parent: Widget parent
         """
         super().__init__(parent)
         self.files = files
@@ -203,6 +648,7 @@ class CompilationWorker(QThread):
         self.repeat_headers = repeat_headers
         self.remove_empty_rows = remove_empty_rows
         self.remove_duplicates = remove_duplicates
+        self.date_format = date_format
         
     def run(self):
         """
@@ -607,7 +1053,7 @@ class ExcelFormatter:
         return current_row
     
     @staticmethod
-    def write_data(worksheet, data, start_row):
+    def write_data(worksheet, data, start_row, date_format="FRENCH"):
         """
         Écrit les données dans la feuille de calcul avec le style approprié.
         
@@ -615,16 +1061,24 @@ class ExcelFormatter:
             worksheet: Feuille de calcul à modifier
             data: Données à écrire
             start_row: Ligne de début pour écrire les données
+            date_format: Format de date à utiliser (par défaut FRENCH)
             
         Returns:
             Ligne courante après écriture
         """
         current_row = start_row
         
+        excel_date_format = DATE_FORMATS.get(date_format, DATE_FORMATS["FRENCH"])["excel_format"]
+        
         for row_data in data:
             for col_idx, value in enumerate(row_data, 1):
                 cell = worksheet.cell(row=current_row, column=col_idx, value=value)
                 cell.border = ExcelFormatter.DATA_BORDER
+                
+                # Appliquer le format de date si nécessaire
+                if isinstance(value, datetime):
+                    cell.number_format = excel_date_format
+                    
             current_row += 1
             
         return current_row
@@ -683,6 +1137,505 @@ class ExcelFormatter:
         """
         worksheet.freeze_panes = worksheet.cell(row=freeze_row, column=1)
 
+class PreviewDialog(QDialog):
+    """
+    Boîte de dialogue pour prévisualiser les données avant compilation.
+    """
+    
+    def __init__(self, parent, directory, files, header_start_row, header_rows):
+        """
+        Initialise la boîte de dialogue de prévisualisation.
+        
+        Args:
+            parent: Widget parent
+            directory: Répertoire contenant les fichiers
+            files: Liste des fichiers à prévisualiser
+            header_start_row: Ligne de début des en-têtes
+            header_rows: Nombre de lignes d'en-tête
+        """
+        super().__init__(parent)
+        self.translate = TranslationManager().get_text
+        self.setWindowTitle(self.translate("preview"))
+        self.resize(1000, 700)
+        
+        self.directory = directory
+        self.files = files
+        self.header_start_row = header_start_row
+        self.header_rows = header_rows
+        
+        self.selected_file = None
+        self.preview_data = None
+        self.max_preview_rows = 200  # Limite de lignes pour la prévisualisation
+        
+        self.init_ui()
+        
+        # Charger le premier fichier s'il existe
+        if files:
+            self.file_combo.setCurrentIndex(0)
+            self.selected_file = files[0]
+            self.load_preview()
+    
+    def init_ui(self):
+        """Initialise l'interface utilisateur de la boîte de dialogue."""
+        layout = QVBoxLayout()
+        
+        # Sélection du fichier à prévisualiser
+        file_layout = QHBoxLayout()
+        file_label = QLabel(self.translate("filename") + ":")
+        self.file_combo = QComboBox()
+        self.file_combo.addItems(self.files)
+        self.file_combo.currentIndexChanged.connect(self.on_file_changed)
+        
+        self.refresh_button = QPushButton(self.translate("refresh_preview"))
+        self.refresh_button.clicked.connect(self.load_preview)
+        
+        file_layout.addWidget(file_label)
+        file_layout.addWidget(self.file_combo, 1)
+        file_layout.addWidget(self.refresh_button)
+        
+        layout.addLayout(file_layout)
+        
+        # Tableau de prévisualisation
+        self.preview_table = QTableWidget()
+        self.preview_table.setAlternatingRowColors(True)
+        layout.addWidget(self.preview_table)
+        
+        # Informations sur la prévisualisation
+        self.info_label = QLabel(self.translate("preview_limited", self.max_preview_rows))
+        layout.addWidget(self.info_label)
+        
+        # Bouton de fermeture
+        button_layout = QHBoxLayout()
+        close_button = QPushButton(self.translate("ok"))
+        close_button.clicked.connect(self.accept)
+        button_layout.addStretch()
+        button_layout.addWidget(close_button)
+        button_layout.addStretch()
+        
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+    
+    def on_file_changed(self, index):
+        """
+        Appelé lorsque l'utilisateur change de fichier dans le combobox.
+        
+        Args:
+            index: Index du fichier sélectionné
+        """
+        if index >= 0 and index < len(self.files):
+            self.selected_file = self.files[index]
+            self.load_preview()
+    
+    def load_preview(self):
+        """Charge et affiche la prévisualisation du fichier sélectionné."""
+        if not self.selected_file:
+            return
+        
+        file_path = os.path.join(self.directory, self.selected_file)
+        
+        try:
+            if self.selected_file.lower().endswith(('.xlsx', '.xls')):
+                self.load_excel_preview(file_path)
+            elif self.selected_file.lower().endswith('.csv'):
+                self.load_csv_preview(file_path)
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                self.translate("error"),
+                f"{self.translate('error')}: {str(e)}"
+            )
+    
+    def load_excel_preview(self, file_path):
+        """
+        Charge la prévisualisation d'un fichier Excel.
+        
+        Args:
+            file_path: Chemin du fichier Excel à prévisualiser
+        """
+        try:
+            # Charger le fichier Excel
+            wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+            ws = wb.active
+            
+            # Obtenir les données (limité au nombre max de lignes)
+            preview_data = []
+            headers = []
+            
+            # Récupérer les en-têtes
+            for row in range(self.header_start_row, self.header_start_row + self.header_rows):
+                header_row = []
+                for cell in ws[row]:
+                    header_row.append(cell.value)
+                headers.append(header_row)
+            
+            # Récupérer les données
+            row_count = 0
+            for row in ws.iter_rows(min_row=self.header_start_row + self.header_rows):
+                if row_count >= self.max_preview_rows:
+                    break
+                
+                row_data = [cell.value for cell in row]
+                preview_data.append(row_data)
+                row_count += 1
+            
+            # Afficher les données dans le tableau
+            self.display_preview(headers, preview_data)
+            
+            wb.close()
+        except Exception as e:
+            raise ValueError(f"Erreur lors de la lecture du fichier Excel: {str(e)}")
+    
+    def load_csv_preview(self, file_path):
+        """
+        Charge la prévisualisation d'un fichier CSV.
+        
+        Args:
+            file_path: Chemin du fichier CSV à prévisualiser
+        """
+        try:
+            # Détection de l'encodage du fichier
+            encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
+            delimiter = ','
+            
+            for encoding in encodings:
+                try:
+                    with open(file_path, 'r', encoding=encoding) as f:
+                        sample = f.read(4096)
+                        sniffer = csv.Sniffer()
+                        delimiter = sniffer.sniff(sample).delimiter
+                        break
+                except Exception:
+                    continue
+            
+            # Lecture du CSV avec pandas
+            df = pd.read_csv(file_path, delimiter=delimiter, header=None, encoding=encoding)
+            
+            # Limiter le nombre de lignes
+            if len(df) > self.max_preview_rows + self.header_start_row + self.header_rows:
+                df = df.iloc[:(self.max_preview_rows + self.header_start_row + self.header_rows)]
+            
+            # Récupérer les en-têtes
+            headers = []
+            for row in range(self.header_start_row - 1, self.header_start_row - 1 + self.header_rows):
+                if row < len(df):
+                    headers.append(df.iloc[row].tolist())
+            
+            # Récupérer les données
+            preview_data = []
+            for row in range(self.header_start_row - 1 + self.header_rows, len(df)):
+                preview_data.append(df.iloc[row].tolist())
+            
+            # Afficher les données dans le tableau
+            self.display_preview(headers, preview_data)
+            
+        except Exception as e:
+            raise ValueError(f"Erreur lors de la lecture du fichier CSV: {str(e)}")
+    
+    def display_preview(self, headers, data):
+        """
+        Affiche les données dans le tableau de prévisualisation.
+        
+        Args:
+            headers: Données d'en-tête
+            data: Données à afficher
+        """
+        if not headers or not headers[0]:
+            return
+        
+        # Configurer le tableau
+        self.preview_table.clear()
+        self.preview_table.setRowCount(len(data))
+        self.preview_table.setColumnCount(len(headers[-1]))
+        
+        # Définir les en-têtes des colonnes
+        self.preview_table.setHorizontalHeaderLabels([str(h) if h is not None else "" for h in headers[-1]])
+        
+        # Ajouter les données
+        for row_idx, row_data in enumerate(data):
+            for col_idx, value in enumerate(row_data[:len(headers[-1])]):  # Limiter aux colonnes d'en-tête
+                # Créer un élément de tableau avec la valeur formatée
+                item = QTableWidgetItem(str(value) if value is not None else "")
+                self.preview_table.setItem(row_idx, col_idx, item)
+        
+        # Ajuster la taille des colonnes
+        self.preview_table.resizeColumnsToContents()
+        
+        # Mettre à jour l'étiquette d'information
+        if len(data) >= self.max_preview_rows:
+            self.info_label.setText(self.translate("preview_limited", self.max_preview_rows))
+        else:
+            self.info_label.setText(f"{len(data)} lignes affichées")
+
+
+class DateFormatDialog(QDialog):
+    """
+    Boîte de dialogue pour choisir le format de date.
+    """
+    
+    def __init__(self, parent, current_format="FRENCH"):
+        """
+        Initialise la boîte de dialogue de format de date.
+        
+        Args:
+            parent: Widget parent
+            current_format: Format de date actuellement sélectionné
+        """
+        super().__init__(parent)
+        self.translate = TranslationManager().get_text
+        self.setWindowTitle(self.translate("date_format"))
+        self.resize(500, 400)
+        
+        self.current_format = current_format
+        self.custom_format = ""
+        self.selected_format = current_format
+        
+        self.init_ui()
+    
+    def init_ui(self):
+        """Initialise l'interface utilisateur de la boîte de dialogue."""
+        layout = QVBoxLayout()
+        
+        # Groupe de formats prédéfinis
+        group = QGroupBox(self.translate("date_format_options"))
+        group_layout = QVBoxLayout()
+        
+        # Créer les boutons radio pour chaque format prédéfini
+        self.radio_group = QButtonGroup(self)
+        formats = [
+            ("STANDARD", "date_format_standard"),
+            ("FRENCH", "date_format_french"),
+            ("US", "date_format_us"),
+            ("DATETIME", "date_format_datetime"),
+            ("DATETIME_FRENCH", "date_format_datetime_french"),
+            ("DATE_ONLY", "date_format_date_only"),
+            ("TIME_ONLY", "date_format_time_only"),
+            ("SHORT", "date_format_short"),
+            ("CUSTOM", "date_format_custom")
+        ]
+        
+        self.radio_buttons = {}
+        
+        for i, (format_key, label_key) in enumerate(formats):
+            radio = QRadioButton(self.translate(label_key))
+            self.radio_group.addButton(radio, i)
+            self.radio_buttons[format_key] = radio
+            
+            if format_key == "CUSTOM":
+                custom_layout = QHBoxLayout()
+                custom_layout.addWidget(radio)
+                self.custom_edit = QLineEdit()
+                self.custom_edit.setPlaceholderText("dd/MM/yyyy HH:mm:ss")
+                self.custom_edit.setEnabled(False)
+                custom_layout.addWidget(self.custom_edit)
+                group_layout.addLayout(custom_layout)
+            else:
+                group_layout.addWidget(radio)
+        
+        group.setLayout(group_layout)
+        layout.addWidget(group)
+        
+        # Exemple avec la date actuelle
+        example_layout = QHBoxLayout()
+        example_layout.addWidget(QLabel(self.translate("preview") + ":"))
+        self.example_label = QLabel()
+        self.update_example()
+        example_layout.addWidget(self.example_label)
+        layout.addLayout(example_layout)
+        
+        # Boutons OK/Annuler
+        button_layout = QHBoxLayout()
+        ok_button = QPushButton(self.translate("ok"))
+        ok_button.clicked.connect(self.accept)
+        cancel_button = QPushButton(self.translate("cancel"))
+        cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addStretch()
+        button_layout.addWidget(ok_button)
+        button_layout.addWidget(cancel_button)
+        
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+        
+        # Connecter les signaux
+        self.radio_group.buttonClicked.connect(self.on_format_changed)
+        self.custom_edit.textChanged.connect(self.on_custom_format_changed)
+        
+        # Sélectionner le format actuel
+        if self.current_format in self.radio_buttons:
+            self.radio_buttons[self.current_format].setChecked(True)
+            if self.current_format == "CUSTOM":
+                self.custom_edit.setEnabled(True)
+    
+    def on_format_changed(self, button):
+        """
+        Appelé lorsque l'utilisateur change de format.
+        
+        Args:
+            button: Bouton radio sélectionné
+        """
+        for format_key, radio in self.radio_buttons.items():
+            if radio == button:
+                self.selected_format = format_key
+                if format_key == "CUSTOM":
+                    self.custom_edit.setEnabled(True)
+                else:
+                    self.custom_edit.setEnabled(False)
+                break
+        
+        self.update_example()
+    
+    def on_custom_format_changed(self, text):
+        """
+        Appelé lorsque l'utilisateur modifie le format personnalisé.
+        
+        Args:
+            text: Nouveau texte du format personnalisé
+        """
+        self.custom_format = text
+        self.update_example()
+    
+    def update_example(self):
+        """Met à jour l'exemple de format de date."""
+        now = datetime.now()
+        
+        if self.selected_format == "CUSTOM":
+            try:
+                # Convertir le format de l'utilisateur en format de date Python
+                user_format = self.custom_format
+                # Remplacer les tokens de format
+                py_format = user_format.replace("dd", "%d").replace("MM", "%m").replace("yyyy", "%Y")
+                py_format = py_format.replace("HH", "%H").replace("mm", "%M").replace("ss", "%S")
+                py_format = py_format.replace("yy", "%y")
+                
+                formatted_date = now.strftime(py_format)
+                self.example_label.setText(formatted_date)
+            except Exception:
+                self.example_label.setText("Format invalide")
+        else:
+            # Utiliser le format prédéfini
+            date_format = DATE_FORMATS[self.selected_format]["format"]
+            
+            # Convertir en format Python
+            py_format = date_format.replace("dd", "%d").replace("MM", "%m").replace("yyyy", "%Y")
+            py_format = py_format.replace("HH", "%H").replace("mm", "%M").replace("ss", "%S")
+            py_format = py_format.replace("yy", "%y")
+            
+            formatted_date = now.strftime(py_format)
+            self.example_label.setText(formatted_date)
+    
+    def get_selected_format(self):
+        """
+        Obtient le format de date sélectionné.
+        
+        Returns:
+            str: Clé du format sélectionné
+        """
+        if self.selected_format == "CUSTOM":
+            DATE_FORMATS["CUSTOM"]["format"] = self.custom_format
+            
+            # Générer un format Excel personnalisé
+            excel_format = self.custom_format
+            excel_format = excel_format.replace("dd", "dd").replace("MM", "mm").replace("yyyy", "yyyy")
+            excel_format = excel_format.replace("HH", "hh").replace("mm", "mm").replace("ss", "ss")
+            excel_format = excel_format.replace("yy", "yy")
+            
+            DATE_FORMATS["CUSTOM"]["excel_format"] = excel_format
+            
+        return self.selected_format
+
+
+class LanguageDialog(QDialog):
+    """
+    Boîte de dialogue pour choisir la langue de l'interface.
+    """
+    
+    def __init__(self, parent):
+        """
+        Initialise la boîte de dialogue de choix de langue.
+        
+        Args:
+            parent: Widget parent
+        """
+        super().__init__(parent)
+        self.translate = TranslationManager().get_text
+        self.setWindowTitle(self.translate("languages"))
+        self.resize(300, 200)
+        
+        self.selected_language = TranslationManager().current_language
+        
+        self.init_ui()
+    
+    def init_ui(self):
+        """Initialise l'interface utilisateur de la boîte de dialogue."""
+        layout = QVBoxLayout()
+        
+        # Groupe des langues
+        group = QGroupBox(self.translate("language"))
+        group_layout = QVBoxLayout()
+        
+        # Créer les boutons radio pour chaque langue
+        self.radio_group = QButtonGroup(self)
+        
+        # Français
+        self.radio_fr = QRadioButton(self.translate("french"))
+        self.radio_group.addButton(self.radio_fr, 0)
+        group_layout.addWidget(self.radio_fr)
+        
+        # Anglais
+        self.radio_en = QRadioButton(self.translate("english"))
+        self.radio_group.addButton(self.radio_en, 1)
+        group_layout.addWidget(self.radio_en)
+        
+        group.setLayout(group_layout)
+        layout.addWidget(group)
+        
+        # Boutons OK/Annuler
+        button_layout = QHBoxLayout()
+        apply_button = QPushButton(self.translate("apply"))
+        apply_button.clicked.connect(self.accept)
+        cancel_button = QPushButton(self.translate("cancel"))
+        cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addStretch()
+        button_layout.addWidget(apply_button)
+        button_layout.addWidget(cancel_button)
+        
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+        
+        # Sélectionner la langue actuelle
+        if self.selected_language == "fr":
+            self.radio_fr.setChecked(True)
+        elif self.selected_language == "en":
+            self.radio_en.setChecked(True)
+        
+        # Connecter les signaux
+        self.radio_group.buttonClicked.connect(self.on_language_changed)
+    
+    def on_language_changed(self, button):
+        """
+        Appelé lorsque l'utilisateur change de langue.
+        
+        Args:
+            button: Bouton radio sélectionné
+        """
+        if button == self.radio_fr:
+            self.selected_language = "fr"
+        elif button == self.radio_en:
+            self.selected_language = "en"
+    
+    def get_selected_language(self):
+        """
+        Obtient la langue sélectionnée.
+        
+        Returns:
+            str: Code de la langue sélectionnée
+        """
+        return self.selected_language
+
 
 class VerificationReportDialog(QDialog):
     """
@@ -699,7 +1652,8 @@ class VerificationReportDialog(QDialog):
             incompatible_files: Liste des fichiers incompatibles avec raisons
         """
         super().__init__(parent)
-        self.setWindowTitle("Rapport de vérification des fichiers")
+        self.translate = TranslationManager().get_text
+        self.setWindowTitle(self.translate("verification_title"))
         self.setMinimumSize(800, 600)
         self.compatible_files = compatible_files
         self.incompatible_files = incompatible_files
@@ -713,7 +1667,7 @@ class VerificationReportDialog(QDialog):
         
         # En-tête avec statistiques
         total_files = len(self.compatible_files) + len(self.incompatible_files)
-        header_label = QLabel(f"<h2>Vérification de {total_files} fichiers</h2>")
+        header_label = QLabel(f"<h2>{self.translate('verification_header', total_files)}</h2>")
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header_label)
         
@@ -722,10 +1676,8 @@ class VerificationReportDialog(QDialog):
         
         stats_label = QLabel(
             f"<div style='text-align:center; margin:10px 0;'>"
-            f"<span style='color:{COLORS['SUCCESS']}; font-weight:bold;'>Compilables: {len(self.compatible_files)} "
-            f"({compat_percent:.1f}%)</span> | "
-            f"<span style='color:{COLORS['WARNING']}; font-weight:bold;'>Non compilables: {len(self.incompatible_files)} "
-            f"({incompat_percent:.1f}%)</span>"
+            f"<span style='color:#{COLORS['SUCCESS']}; font-weight:bold;'>{self.translate('compilable', len(self.compatible_files), compat_percent)}</span> | "
+            f"<span style='color:#{COLORS['WARNING']}; font-weight:bold;'>{self.translate('not_compilable', len(self.incompatible_files), incompat_percent)}</span>"
             f"</div>"
         )
         stats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -733,18 +1685,17 @@ class VerificationReportDialog(QDialog):
         
         # Tableau des fichiers incompatibles
         if self.incompatible_files:
-            group_incompatible = QGroupBox("Fichiers non compilables")
+            group_incompatible = QGroupBox(self.translate("non_compilable_files"))
             group_layout = QVBoxLayout()
             
             # Instructions pour résoudre les problèmes
             help_label = QLabel(
-                "Ces fichiers ne peuvent pas être compilés pour les raisons indiquées. "
-                "Voici quelques conseils pour résoudre les problèmes courants :"
+                f"{self.translate('error_resolution_tips')}"
                 "<ul>"
-                "<li><b>Fichier ouvert</b>: Fermez le fichier dans Excel et réessayez</li>"
-                "<li><b>Fichier protégé</b>: Désactivez la protection dans Excel (Révision > Protéger la feuille)</li>"
-                "<li><b>Structure d'en-tête incompatible</b>: Vérifiez que le nombre de lignes d'en-tête est correct</li>"
-                "<li><b>Erreur d'encodage</b>: Réenregistrez le fichier CSV avec l'encodage UTF-8</li>"
+                f"<li><b>{self.translate('open_file_tip')}</b></li>"
+                f"<li><b>{self.translate('protected_file_tip')}</b></li>"
+                f"<li><b>{self.translate('header_structure_tip')}</b></li>"
+                f"<li><b>{self.translate('encoding_error_tip')}</b></li>"
                 "</ul>"
             )
             help_label.setWordWrap(True)
@@ -752,7 +1703,7 @@ class VerificationReportDialog(QDialog):
             
             table = QTableWidget()
             table.setColumnCount(2)
-            table.setHorizontalHeaderLabels(["Nom du fichier", "Problème détecté"])
+            table.setHorizontalHeaderLabels([self.translate("filename"), self.translate("detected_issue")])
             table.setRowCount(len(self.incompatible_files))
             table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
             
@@ -769,7 +1720,7 @@ class VerificationReportDialog(QDialog):
         
         # Liste des fichiers compatibles
         if self.compatible_files:
-            group_compatible = QGroupBox("Fichiers compilables")
+            group_compatible = QGroupBox(self.translate("compilable_files"))
             group_layout = QVBoxLayout()
         
             list_widget = QListWidget()
@@ -786,21 +1737,12 @@ class VerificationReportDialog(QDialog):
         button_layout = QHBoxLayout()
 
         if self.incompatible_files and self.compatible_files:
-            ignore_button = QPushButton("Ignorer les non compilables et compiler")
+            ignore_button = QPushButton(self.translate("ignore_non_compilable"))
             ignore_button.setStyleSheet(f"background-color: #{COLORS['INFO']}; color: white;")
             ignore_button.clicked.connect(self.continue_with_compatible_only)
             button_layout.addWidget(ignore_button)
 
-        """"
-        if self.compatible_files:
-            compile_button = QPushButton("Compiler les fichiers compatibles")
-            compile_button.setStyleSheet(f"background-color: #{COLORS['SUCCESS']}; color: white;")
-            compile_button.clicked.connect(self.accept)
-            compile_button.setDefault(True)
-            button_layout.addWidget(compile_button)
-
-        """
-        cancel_button = QPushButton("Annuler")
+        cancel_button = QPushButton(self.translate("cancel"))
         cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(cancel_button)
 
@@ -813,7 +1755,6 @@ class VerificationReportDialog(QDialog):
         """
         self.continue_with_compatible = True
         self.accept()
-
 
 class CompilationReportDialog(QDialog):
     """
@@ -831,7 +1772,8 @@ class CompilationReportDialog(QDialog):
             output_path: Chemin du fichier de sortie
         """
         super().__init__(parent)
-        self.setWindowTitle("Rapport de compilation")
+        self.translate = TranslationManager().get_text
+        self.setWindowTitle(self.translate("compilation_report"))
         self.setMinimumSize(800, 600)
         self.successful_files = successful_files
         self.failed_files = failed_files
@@ -845,13 +1787,13 @@ class CompilationReportDialog(QDialog):
         
         # En-tête avec statistiques
         total_files = len(self.successful_files) + len(self.failed_files)
-        header_label = QLabel(f"<h2>Résultat de la compilation</h2>")
+        header_label = QLabel(f"<h2>{self.translate('compilation_result')}</h2>")
         header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header_label)
         
         # Affichage du chemin du fichier de sortie
         output_label = QLabel(f"<div style='text-align:center; margin:5px 0;'>"
-                             f"<b>Fichier généré:</b> {self.output_path}"
+                             f"<b>{self.translate('generated_file')}</b> {self.output_path}"
                              f"</div>")
         output_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(output_label)
@@ -859,7 +1801,7 @@ class CompilationReportDialog(QDialog):
         # Statistiques
         percentage = len(self.successful_files) * 100 / total_files if total_files > 0 else 0
         stats_label = QLabel(f"<div style='text-align:center; margin:10px 0; font-size:16px;'>"
-                            f"<b>Taux de compilation: {percentage:.1f}%</b> ({len(self.successful_files)}/{total_files})"
+                            f"<b>{self.translate('compilation_rate', percentage, len(self.successful_files), total_files)}</b>"
                             f"</div>")
         stats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(stats_label)
@@ -872,15 +1814,15 @@ class CompilationReportDialog(QDialog):
             success_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(success_icon)
             
-            success_message = QLabel("<div style='text-align:center; color:green; font-weight:bold;'>"
-                                    "Tous les fichiers ont été compilés avec succès !"
-                                    "</div>")
+            success_message = QLabel(f"<div style='text-align:center; color:green; font-weight:bold;'>"
+                                    f"{self.translate('all_files_compiled')}"
+                                    f"</div>")
             success_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(success_message)
         
         # Liste des fichiers compilés
         if self.successful_files:
-            success_group = QGroupBox(f"Fichiers compilés ({len(self.successful_files)})")
+            success_group = QGroupBox(self.translate("compiled_files", len(self.successful_files)))
             success_layout = QVBoxLayout()
             
             list_widget = QListWidget()
@@ -895,12 +1837,12 @@ class CompilationReportDialog(QDialog):
         
         # Tableau des échecs si existants
         if self.failed_files:
-            failed_group = QGroupBox(f"Fichiers non compilés ({len(self.failed_files)})")
+            failed_group = QGroupBox(self.translate("not_compiled_files", len(self.failed_files)))
             failed_layout = QVBoxLayout()
             
             table = QTableWidget()
             table.setColumnCount(2)
-            table.setHorizontalHeaderLabels(["Nom du fichier", "Erreur"])
+            table.setHorizontalHeaderLabels([self.translate("filename"), self.translate("error")])
             table.setRowCount(len(self.failed_files))
             table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
             
@@ -916,7 +1858,7 @@ class CompilationReportDialog(QDialog):
             layout.addWidget(failed_group)
         
         # Bouton OK
-        button = QPushButton("OK")
+        button = QPushButton(self.translate("ok"))
         button.clicked.connect(self.accept)
         layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignCenter)
         
@@ -930,7 +1872,8 @@ class IPWarningDialog(QDialog):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Propriété Intellectuelle - Avertissement")
+        self.translate = TranslationManager().get_text
+        self.setWindowTitle(self.translate("ip_warning_title"))
         self.setMinimumSize(800, 600)
         
         self.init_ui()
@@ -940,30 +1883,27 @@ class IPWarningDialog(QDialog):
         layout = QVBoxLayout()
         
         # Titre
-        title_label = QLabel("<h1>Avertissement</h1>")
+        title_label = QLabel("<h1>" + self.translate("warning") + "</h1>")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_label)
         
         # Contenu
         content = QLabel(
             "<p style='font-size: 14px; line-height: 1.5;'>"
-            "Cette application <b>Compilateur Excel Professionnel</b> est la propriété intellectuelle exclusive de:<br><br>"
+            f"{self.translate('ip_warning_content')}<br><br>"
             "<div style='text-align: center; font-weight: bold; font-size: 16px; margin: 20px 0;'>"
-            "GOUNOU N'GOBI Chabi Zimé<br>"
-            "Data Manager & Data Analyst<br><br>"
+            f"{self.translate('developer_name')}<br>"
+            f"{self.translate('developer_title')}<br><br>"
             "</div>"
-            "Tous droits réservés. Cette application est protégée par les lois sur le droit d'auteur "
-            "et les traités internationaux sur la propriété intellectuelle.<br><br>"
+            f"{self.translate('copyright_notice')}<br><br>"
             
-            "<span style='color: #f44336; font-weight: bold;'>AVERTISSEMENT IMPORTANT:</span><br>"
+            f"<span style='color: #{COLORS['WARNING']}; font-weight: bold;'>{self.translate('warning_important')}</span><br>"
             "<ul>"
-            "<li>Toute reproduction non autorisée, distribution ou modification de cette application "
-            "est strictement interdite.</li>"
-            "<li>L'utilisation de cette application est soumise aux termes de la licence accordée par l'auteur.</li>"
+            f"<li>{self.translate('unauthorized_reproduction')}</li>"
+            f"<li>{self.translate('license_terms')}</li>"
             "</ul><br>"
             
-            "Pour toute question concernant les droits d'utilisation ou pour signaler une violation "
-            "de la propriété intellectuelle, veuillez contacter l'auteur à l'adresse : zimkada@gmail.com."
+            f"{self.translate('contact_info')}"
             
             "</p>"
         )
@@ -978,11 +1918,11 @@ class IPWarningDialog(QDialog):
         # Boutons
         button_layout = QHBoxLayout()
         
-        accept_button = QPushButton("J'accepte ces conditions")
+        accept_button = QPushButton(self.translate("accept_conditions"))
         accept_button.clicked.connect(self.accept)
         accept_button.setDefault(True)
         
-        exit_button = QPushButton("Quitter l'application")
+        exit_button = QPushButton(self.translate("quit_app"))
         exit_button.clicked.connect(self.reject)
         
         button_layout.addWidget(accept_button)
@@ -999,61 +1939,28 @@ class ModernExcelCompilerApp(QMainWindow):
     def __init__(self):
         """Initialise l'application."""
         super().__init__()
-        self.setup_ui()
+        
+        # Initialiser le gestionnaire de traduction
+        self.translate = TranslationManager().get_text
+        TranslationManager().register_language_changed_callback(self.update_ui_language)
+        
+        # Initialiser les variables
         self.setup_variables()
-        self.create_main_layout()  
+        
+        # Configurer l'interface utilisateur
+        self.setup_ui()
+        self.create_menu()
+        self.create_toolbar()
+        self.create_main_layout()
         self.connect_signals()
+        
+        # Charger les paramètres sauvegardés
+        SettingsManager().load_settings(self)
+        
         logging.info("Application démarrée")
         
         # Afficher l'avertissement de propriété intellectuelle au démarrage
         self.show_ip_warning()
-    
-    def create_main_layout(self):
-        """Crée la mise en page principale de l'application."""
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        main_layout = QVBoxLayout(main_widget)
-        
-        # Création des onglets
-        self.tabs = QTabWidget()
-        self.create_compilation_tab()
-        self.create_advanced_options_tab()
-        self.create_help_tab()
-        self.create_about_tab()
-        
-        # Appliquer un style spécifique à la barre d'onglets pour qu'elle soit verte
-        self.tabs.setStyleSheet(f"""
-            QTabWidget::pane {{
-                border: 1px solid #{COLORS["PRIMARY"]};
-            }}
-            QTabBar {{
-                background-color: #{COLORS["PRIMARY"]};
-            }}
-            QTabBar::tab {{
-                background-color: #{COLORS["PRIMARY"]};
-                color: white;
-                padding: 8px 15px;
-            }}
-            QTabBar::tab:selected {{
-                background-color: #{COLORS["PRIMARY_DARK"]};
-                font-weight: bold;
-            }}
-            QTabBar::tab:!selected {{
-                margin-top: 2px;
-            }}
-        """)
-        
-        main_layout.addWidget(self.tabs)
-
-
-
-    def setup_ui(self):
-        """Configure l'interface utilisateur principale."""
-        self.setWindowTitle("Compilateur Excel Professionnel")
-        self.setGeometry(50, 50, 1200, 700)
-        self.setWindowIcon(QIcon("icon.jpg"))
-        self.setMinimumSize(800, 600)
-        self.apply_stylesheet()
     
     def setup_variables(self):
         """Initialise les variables de l'application."""
@@ -1061,12 +1968,22 @@ class ModernExcelCompilerApp(QMainWindow):
         self.files = []
         self.compilation_worker = None
         self.verification_enabled = True  # Par défaut, la vérification préliminaire est activée
+        self.date_format = "FRENCH"  # Format de date par défaut
+
+
+    def setup_ui(self):
+        """Configure l'interface utilisateur principale."""
+        self.setWindowTitle(self.translate("app_title"))
+        self.setGeometry(50, 50, 1200, 700)
+        self.setWindowIcon(QIcon(resource_path("icon.ico")))
+        self.setMinimumSize(800, 600)
+        self.apply_stylesheet()
     
     def apply_stylesheet(self):
         """Applique le style CSS à l'application."""
         self.setStyleSheet(f"""
             QMainWindow {{
-                background-color: {COLORS["BACKGROUND"]};
+                background-color: #{COLORS["BACKGROUND"]};
             }}
             
             /* Style pour la barre de menus */
@@ -1095,15 +2012,30 @@ class ModernExcelCompilerApp(QMainWindow):
                 color: white;
             }}
             
+            /* Style pour la barre d'outils */
+            QToolBar {{
+                background-color: #{COLORS["PRIMARY"]};
+                border: none;
+                spacing: 10px;
+                padding: 5px;
+            }}
+            
+            QToolButton {{
+                background-color: transparent;
+                color: white;
+                border-radius: 4px;
+                padding: 5px;
+            }}
+            
+            QToolButton:hover {{
+                background-color: #{COLORS["PRIMARY_DARK"]};
+            }}
+            
             /* Style pour les onglets */
             QTabWidget::pane {{
                 border: 1px solid #{COLORS["PRIMARY"]};
                 border-radius: 4px;
                 background-color: white;
-            }}
-            
-            QTabBar {{
-                background-color: #{COLORS["PRIMARY"]};
             }}
             
             QTabBar::tab {{
@@ -1209,8 +2141,152 @@ class ModernExcelCompilerApp(QMainWindow):
                 border-color: #{COLORS["PRIMARY"]};
             }}
         """)
-
     
+    def create_menu(self):
+        """Crée le menu de l'application."""
+        menubar = self.menuBar()
+        
+        # Menu Fichier
+        file_menu = menubar.addMenu(self.translate("file_menu"))
+        
+        # Action Ouvrir un répertoire
+        open_action = QAction(self.translate("open_dir"), self)
+        open_action.setShortcut(QKeySequence.StandardKey.Open)
+        open_action.triggered.connect(self.choose_directory)
+        file_menu.addAction(open_action)
+        
+        file_menu.addSeparator()
+        
+        # Action Enregistrer les paramètres
+        save_settings_action = QAction(self.translate("save_settings"), self)
+        save_settings_action.triggered.connect(self.save_settings)
+        file_menu.addAction(save_settings_action)
+        
+        # Action Charger les paramètres
+        load_settings_action = QAction(self.translate("load_settings"), self)
+        load_settings_action.triggered.connect(self.load_settings)
+        file_menu.addAction(load_settings_action)
+        
+        file_menu.addSeparator()
+        
+        # Action Quitter
+        exit_action = QAction(self.translate("exit"), self)
+        exit_action.setShortcut(QKeySequence.StandardKey.Quit)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        # Menu Édition
+        edit_menu = menubar.addMenu(self.translate("edit_menu"))
+        
+        # Action Sélectionner tout
+        select_all_action = QAction(self.translate("select_all"), self)
+        select_all_action.triggered.connect(self.select_all_files)
+        edit_menu.addAction(select_all_action)
+        
+        # Action Désélectionner tout
+        deselect_all_action = QAction(self.translate("deselect_all"), self)
+        deselect_all_action.triggered.connect(self.deselect_all_files)
+        edit_menu.addAction(deselect_all_action)
+        
+        # Action Inverser la sélection
+        invert_selection_action = QAction(self.translate("invert_selection"), self)
+        invert_selection_action.triggered.connect(self.invert_file_selection)
+        edit_menu.addAction(invert_selection_action)
+        
+        # Menu Outils
+        tools_menu = menubar.addMenu(self.translate("tools_menu"))
+        
+        # Action Aperçu des données
+        preview_action = QAction(self.translate("preview_tool"), self)
+        preview_action.triggered.connect(self.show_preview)
+        tools_menu.addAction(preview_action)
+        
+        # Action Format de date
+        date_format_action = QAction(self.translate("date_format"), self)
+        date_format_action.triggered.connect(self.show_date_format_dialog)
+        tools_menu.addAction(date_format_action)
+        
+        # Menu Langue
+        language_menu = menubar.addMenu(self.translate("language_menu"))
+        
+        # Action Changer la langue
+        change_language_action = QAction(self.translate("language"), self)
+        change_language_action.triggered.connect(self.show_language_dialog)
+        language_menu.addAction(change_language_action)
+        
+        # Menu Aide
+        about_menu = menubar.addMenu(self.translate("about"))
+        
+        # Action Aide
+        about_action = QAction(self.translate("about"), self)
+        about_action.triggered.connect(self.show_about_dialog)
+        about_menu.addAction(about_action)
+    
+    def create_toolbar(self):
+        """Crée la barre d'outils de l'application."""
+        toolbar = QToolBar(self)
+        toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(32, 32))
+        
+        # Action Ouvrir un répertoire
+        open_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon), self.translate("open_dir"), self)
+        open_action.triggered.connect(self.choose_directory)
+        toolbar.addAction(open_action)
+        
+        toolbar.addSeparator()
+        
+        # Action Aperçu des données
+        preview_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView), self.translate("preview_tool"), self)
+        preview_action.triggered.connect(self.show_preview)
+        toolbar.addAction(preview_action)
+        
+        # Action Compiler
+        compile_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay), self.translate("compile_tool"), self)
+        compile_action.triggered.connect(self.compile_files)
+        toolbar.addAction(compile_action)
+        
+        self.addToolBar(toolbar)
+    
+    def create_main_layout(self):
+        """Crée la mise en page principale de l'application."""
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        main_layout = QVBoxLayout(main_widget)
+        
+        # Création des onglets
+        self.tabs = QTabWidget()
+        self.create_compilation_tab()
+        self.create_advanced_options_tab()
+        self.create_date_format_tab()
+        self.create_preview_tab()
+        self.create_help_tab()
+        self.create_about_tab()
+        
+        # Appliquer un style spécifique à la barre d'onglets
+        self.tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid #{COLORS["PRIMARY"]};
+            }}
+            QTabBar {{
+                background-color: #{COLORS["PRIMARY"]};
+            }}
+            QTabBar::tab {{
+                background-color: #{COLORS["PRIMARY"]};
+                color: white;
+                padding: 8px 15px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: #{COLORS["PRIMARY_DARK"]};
+                font-weight: bold;
+            }}
+            QTabBar::tab:!selected {{
+                margin-top: 2px;
+            }}
+        """)
+        
+        main_layout.addWidget(self.tabs)
+    
+
     def create_compilation_tab(self):
         """Crée l'onglet principal de compilation."""
         tab = QWidget()
@@ -1231,7 +2307,7 @@ class ModernExcelCompilerApp(QMainWindow):
         
         # Bouton de compilation
         compile_layout = QHBoxLayout()
-        self.button_compile = QPushButton("Lancer la compilation")
+        self.button_compile = QPushButton(self.translate("start_compilation"))
         self.button_compile.setFont(QFont("Segoe UI", FONT_SIZES["LARGE"]))
         self.button_compile.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self.button_compile.setStyleSheet(f"background-color: #{COLORS['PRIMARY']}; color: white;")
@@ -1246,11 +2322,11 @@ class ModernExcelCompilerApp(QMainWindow):
         layout.addWidget(self.status_label)
         
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "Compilation")
+        self.tabs.addTab(tab, self.translate("compilation_options"))
     
     def create_files_group(self):
         """Crée le groupe d'éléments pour la sélection des fichiers."""
-        group = QGroupBox("Sélection des fichiers")
+        group = QGroupBox(self.translate("file_selection"))
         layout = QVBoxLayout()
         
         # Date et heure
@@ -1264,10 +2340,10 @@ class ModernExcelCompilerApp(QMainWindow):
         
         # Sélection du répertoire
         dir_layout = QHBoxLayout()
-        self.label_directory = QLabel("Aucun répertoire sélectionné")
-        self.button_choose_directory = QPushButton("Choisir un répertoire")
+        self.label_directory = QLabel(self.translate("no_directory"))
+        self.button_choose_directory = QPushButton(self.translate("choose_directory"))
         self.button_choose_directory.setFont(QFont("Segoe UI", FONT_SIZES["NORMAL"]))
-        self.button_choose_directory.setIcon(QIcon("folder.png"))
+        self.button_choose_directory.setIcon(QIcon(resource_path("folder.ico")))
         self.button_choose_directory.setStyleSheet(f"background-color: #{COLORS['PRIMARY']}; color: white;")
 
         dir_layout.addWidget(self.label_directory)
@@ -1280,8 +2356,8 @@ class ModernExcelCompilerApp(QMainWindow):
         
         # Options de sélection
         selection_layout = QHBoxLayout()
-        self.checkbox_all_files = QCheckBox("Sélectionner tous les fichiers")
-        self.label_file_count = QLabel("0 fichier(s) sélectionné(s)")
+        self.checkbox_all_files = QCheckBox(self.translate("select_all_files"))
+        self.label_file_count = QLabel(self.translate("files_selected", 0))
         selection_layout.addWidget(self.checkbox_all_files)
         selection_layout.addStretch()
         selection_layout.addWidget(self.label_file_count)
@@ -1295,12 +2371,12 @@ class ModernExcelCompilerApp(QMainWindow):
     
     def create_options_group(self):
         """Crée le groupe d'éléments pour les options de compilation."""
-        group = QGroupBox("Options de compilation")
+        group = QGroupBox(self.translate("compilation_options"))
         grid_layout = QGridLayout()
         
         # Première colonne : Spinboxes et labels
         # Ligne 0
-        self.label_header_start = QLabel("Ligne de début des en-têtes :")
+        self.label_header_start = QLabel(self.translate("header_start_row"))
         self.spinbox_header_start = QSpinBox()
         self.spinbox_header_start.setMinimum(1)
         self.spinbox_header_start.setMaximum(20)
@@ -1311,7 +2387,7 @@ class ModernExcelCompilerApp(QMainWindow):
         header_start_container.addStretch()
         
         # Ligne 1
-        self.label_header = QLabel("Nombre de lignes d'en-tête :")
+        self.label_header = QLabel(self.translate("header_rows"))
         self.spinbox_header = QSpinBox()
         self.spinbox_header.setMinimum(1)
         self.spinbox_header.setMaximum(15)
@@ -1322,14 +2398,14 @@ class ModernExcelCompilerApp(QMainWindow):
         header_container.addStretch()
         
         # Deuxième colonne : Checkboxes pour répéter et fusionner
-        self.checkbox_repeat_header = QCheckBox("Répéter les en-têtes pour chaque fichier")
-        self.checkbox_merge_headers = QCheckBox("Fusionner les en-têtes multi-niveaux")
+        self.checkbox_repeat_header = QCheckBox(self.translate("repeat_headers"))
+        self.checkbox_merge_headers = QCheckBox(self.translate("merge_headers"))
         
         # Troisième colonne : Nom de fichier et sortie
-        self.checkbox_add_filename = QCheckBox("Ajouter les noms des fichiers sources")
+        self.checkbox_add_filename = QCheckBox(self.translate("add_filename"))
         self.checkbox_add_filename.setChecked(True)
         
-        self.label_output_name = QLabel("Nom du fichier de sortie :")
+        self.label_output_name = QLabel(self.translate("output_filename"))
         self.lineedit_output_name = QLineEdit("compilation.xlsx")
         output_container = QHBoxLayout()
         output_container.addWidget(self.label_output_name)
@@ -1337,7 +2413,7 @@ class ModernExcelCompilerApp(QMainWindow):
         
         # Option de vérification préliminaire
         verification_layout = QHBoxLayout()
-        self.checkbox_verify_files = QCheckBox("Activer la vérification préliminaire des fichiers")
+        self.checkbox_verify_files = QCheckBox(self.translate("enable_verification"))
         self.checkbox_verify_files.setChecked(True)
         verification_layout.addWidget(self.checkbox_verify_files)
         verification_layout.addStretch()
@@ -1373,31 +2449,26 @@ class ModernExcelCompilerApp(QMainWindow):
         group.setLayout(grid_layout)
         return group
     
-    def update_datetime(self):
-        """Met à jour l'affichage de la date et de l'heure."""
-        current_datetime = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        self.datetime_label.setText(f"Date et heure : {current_datetime}")
-    
     def create_advanced_options_tab(self):
         """Crée l'onglet des options avancées."""
         tab = QWidget()
         layout = QVBoxLayout()
         
         # Groupe traitement des données
-        data_group = QGroupBox("Traitement des données")
+        data_group = QGroupBox(self.translate("compilation_options"))
         data_layout = QVBoxLayout()
         
-        self.checkbox_remove_duplicates = QCheckBox("Supprimer les doublons")
+        self.checkbox_remove_duplicates = QCheckBox(self.translate("remove_duplicates"))
         self.checkbox_remove_duplicates.setChecked(True)
         
-        self.checkbox_remove_empty_rows = QCheckBox("Supprimer les lignes entièrement vides")
+        self.checkbox_remove_empty_rows = QCheckBox(self.translate("remove_empty_rows"))
         self.checkbox_remove_empty_rows.setChecked(False)
         
         sort_layout = QVBoxLayout()
-        self.checkbox_sort_data = QCheckBox("Trier les données")
+        self.checkbox_sort_data = QCheckBox(self.translate("sort_data"))
         
         sort_options = QHBoxLayout()
-        self.label_sort_column = QLabel("Colonne de tri (ex: A, B, C) :")
+        self.label_sort_column = QLabel(self.translate("sort_column"))
         self.lineedit_sort_column = QLineEdit("A")
         self.lineedit_sort_column.setEnabled(False)
         sort_options.addWidget(self.label_sort_column)
@@ -1413,13 +2484,13 @@ class ModernExcelCompilerApp(QMainWindow):
         data_group.setLayout(data_layout)
         
         # Groupe formatage
-        format_group = QGroupBox("Formatage")
+        format_group = QGroupBox(self.translate("compilation_options"))
         format_layout = QVBoxLayout()
         
-        self.checkbox_auto_width = QCheckBox("Ajuster automatiquement la largeur des colonnes")
+        self.checkbox_auto_width = QCheckBox(self.translate("auto_width"))
         self.checkbox_auto_width.setChecked(True)
         
-        self.checkbox_freeze_header = QCheckBox("Figer les en-têtes")
+        self.checkbox_freeze_header = QCheckBox(self.translate("freeze_headers"))
         self.checkbox_freeze_header.setChecked(True)
         
         format_layout.addWidget(self.checkbox_auto_width)
@@ -1427,14 +2498,14 @@ class ModernExcelCompilerApp(QMainWindow):
         format_group.setLayout(format_layout)
         
         # Groupe formats des fichiers
-        format_files_group = QGroupBox("Formats de fichiers supportés")
+        format_files_group = QGroupBox(self.translate("file_formats"))
         format_files_layout = QVBoxLayout()
         
-        self.checkbox_excel = QCheckBox("Fichiers Excel (.xlsx, .xls)")
+        self.checkbox_excel = QCheckBox(self.translate("excel_files"))
         self.checkbox_excel.setChecked(True)
         self.checkbox_excel.setEnabled(False)  # Toujours activé
         
-        self.checkbox_csv = QCheckBox("Fichiers CSV (.csv)")
+        self.checkbox_csv = QCheckBox(self.translate("csv_files"))
         self.checkbox_csv.setChecked(True)
         
         format_files_layout.addWidget(self.checkbox_excel)
@@ -1446,8 +2517,120 @@ class ModernExcelCompilerApp(QMainWindow):
         layout.addWidget(format_files_group)
         layout.addStretch()
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "Options avancées")
+        self.tabs.addTab(tab, self.translate("advanced_options"))
     
+    def create_date_format_tab(self):
+        """Crée l'onglet de format de date."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+        
+        # Groupe format de date
+        group = QGroupBox(self.translate("date_format_options"))
+        group_layout = QVBoxLayout()
+        
+        # Créer les boutons radio pour chaque format prédéfini
+        self.date_radio_group = QButtonGroup(self)
+        formats = [
+            ("STANDARD", "date_format_standard"),
+            ("FRENCH", "date_format_french"),
+            ("US", "date_format_us"),
+            ("DATETIME", "date_format_datetime"),
+            ("DATETIME_FRENCH", "date_format_datetime_french"),
+            ("DATE_ONLY", "date_format_date_only"),
+            ("TIME_ONLY", "date_format_time_only"),
+            ("SHORT", "date_format_short"),
+            ("CUSTOM", "date_format_custom")
+        ]
+        
+        self.date_radio_buttons = {}
+        
+        for i, (format_key, label_key) in enumerate(formats):
+            radio = QRadioButton(self.translate(label_key))
+            self.date_radio_group.addButton(radio, i)
+            self.date_radio_buttons[format_key] = radio
+            
+            if format_key == "CUSTOM":
+                custom_layout = QHBoxLayout()
+                custom_layout.addWidget(radio)
+                self.date_custom_edit = QLineEdit()
+                self.date_custom_edit.setPlaceholderText("dd/MM/yyyy HH:mm:ss")
+                self.date_custom_edit.setEnabled(False)
+                custom_layout.addWidget(self.date_custom_edit)
+                group_layout.addLayout(custom_layout)
+            else:
+                group_layout.addWidget(radio)
+        
+        group.setLayout(group_layout)
+        layout.addWidget(group)
+        
+        # Exemple avec la date actuelle
+        example_layout = QHBoxLayout()
+        example_layout.addWidget(QLabel(self.translate("preview") + ":"))
+        self.date_example_label = QLabel()
+        self.update_date_example()
+        example_layout.addWidget(self.date_example_label)
+        layout.addLayout(example_layout)
+        
+        # Bouton Appliquer
+        button_layout = QHBoxLayout()
+        apply_button = QPushButton(self.translate("apply"))
+        apply_button.clicked.connect(self.apply_date_format)
+        button_layout.addStretch()
+        button_layout.addWidget(apply_button)
+        button_layout.addStretch()
+        
+        layout.addLayout(button_layout)
+        layout.addStretch()
+        
+        tab.setLayout(layout)
+        self.tabs.addTab(tab, self.translate("date_format"))
+        
+        # Connecter les signaux
+        self.date_radio_group.buttonClicked.connect(self.on_date_format_changed)
+        self.date_custom_edit.textChanged.connect(self.on_date_custom_format_changed)
+        
+        # Sélectionner le format actuel
+        if self.date_format in self.date_radio_buttons:
+            self.date_radio_buttons[self.date_format].setChecked(True)
+            if self.date_format == "CUSTOM":
+                self.date_custom_edit.setEnabled(True)
+                self.date_custom_edit.setText(DATE_FORMATS["CUSTOM"]["format"])
+    
+    def create_preview_tab(self):
+        """Crée l'onglet de prévisualisation des données."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+        
+        # Options de prévisualisation
+        options_layout = QHBoxLayout()
+        
+        # Sélection du fichier
+        file_label = QLabel(self.translate("filename") + ":")
+        self.preview_combo = QComboBox()
+        self.preview_combo.currentIndexChanged.connect(self.on_preview_file_changed)
+        
+        # Bouton Actualiser
+        self.preview_refresh_button = QPushButton(self.translate("refresh_preview"))
+        self.preview_refresh_button.clicked.connect(self.refresh_preview)
+        
+        options_layout.addWidget(file_label)
+        options_layout.addWidget(self.preview_combo, 1)
+        options_layout.addWidget(self.preview_refresh_button)
+        
+        layout.addLayout(options_layout)
+        
+        # Tableau de prévisualisation
+        self.preview_table = QTableWidget()
+        self.preview_table.setAlternatingRowColors(True)
+        layout.addWidget(self.preview_table)
+        
+        # Informations sur la prévisualisation
+        self.preview_info_label = QLabel(self.translate("preview_limited", 200))
+        layout.addWidget(self.preview_info_label)
+        
+        tab.setLayout(layout)
+        self.tabs.addTab(tab, self.translate("preview"))
+
     def create_help_tab(self):
         """Crée l'onglet d'aide."""
         tab = QWidget()
@@ -1496,23 +2679,6 @@ class ModernExcelCompilerApp(QMainWindow):
             padding: 2px 5px;
             border-radius: 3px;
         }
-
-        /* Améliorations pour l'expérience utilisateur */
-        @media (max-width: 768px) {
-            body {
-                margin: 0 10px;
-            }
-            
-            .section-content {
-                padding-left: 15px;
-            }
-        }
-
-        /* Animation subtile au survol des sections */
-        h3:hover {
-            transform: translateX(5px);
-            transition: transform 0.2s ease;
-        }
         </style>
 
         <h2>Guide d'utilisation du Compilateur Excel</h2>
@@ -1553,39 +2719,47 @@ class ModernExcelCompilerApp(QMainWindow):
             <h4>• <b>CSV</b> : Traite les fichiers .csv avec détection automatique du délimiteur</h4>
         </div>
         
-        <h3>IV. Informations préliminaires</h3>
+        <h3>IV. Format de date</h3>
         <div class="section-content">
-            <h4>• Pour le premier fichier uniquement, les informations situées avant l'en-tête sont préservées</h4> 
-            <h4>• Ces informations sont copiées dans le fichier final</h4>
+            <h4>• Sélectionnez le format de date à utiliser pour les cellules contenant des dates</h4>
+            <h4>• Formats prédéfinis disponibles: standard, français, américain, etc.</h4>
+            <h4>• Option de format personnalisé pour des besoins spécifiques</h4>
+            <h4>• L'aperçu montre comment la date actuelle apparaîtra dans ce format</h4>
         </div>
         
-        <h3>V. Vérification préliminaire des fichiers</h3>
+        <h3>V. Prévisualisation</h3>
+        <div class="section-content">
+            <h4>• Examine le contenu des fichiers avant de les compiler</h4>
+            <h4>• Sélectionnez un fichier dans la liste déroulante pour le prévisualiser</h4>
+            <h4>• Vérifie la structure des données, les en-têtes, etc.</h4>
+            <h4>• L'aperçu est limité aux 200 premières lignes pour des raisons de performance</h4>
+        </div>
+        
+        <h3>VI. Internationalisation</h3>
+        <div class="section-content">
+            <h4>• L'application est disponible en français et en anglais</h4>
+            <h4>• Changez la langue via le menu Langue</h4>
+            <h4>• La langue choisie est sauvegardée dans les préférences</h4>
+        </div>
+        
+        <h3>VII. Vérification préliminaire des fichiers</h3>
         <div class="section-content">
             <h4>• Avant la compilation, l'application analyse tous les fichiers sélectionnés</h4>
             <h4>• Un rapport détaillé identifie les fichiers compatibles et incompatibles</h4>
             <h4>• Pour chaque fichier problématique, un motif précis est affiché</h4>
             <h4>• Vous pouvez choisir d'ignorer les fichiers incompatibles ou d'annuler la compilation</h4>
-            <h4>• Cette vérification peut être désactivée dans les options de compilation</h4>
         </div>
         
-        <h3>VI. Résolution des problèmes courants</h3>
-        <div class="section-content">
-            <h4>• <span class="highlight">Fichier ouvert dans Excel</span> : Fermez le fichier Excel avant la compilation</h4>
-            <h4>• <span class="highlight">Structure d'en-tête incompatible</span> : Vérifiez que la ligne de début d'en-tête et le nombre de lignes sont corrects</h4>
-            <h4>• <span class="highlight">Fichier protégé</span> : Désactivez la protection du fichier dans Excel</h4>
-            <h4>• <span class="highlight">Problèmes d'encodage CSV</span> : Enregistrez le fichier en UTF-8</h4>
-            <h4>• <span class="highlight">Erreurs de compilation</span> : Consultez le fichier log généré dans le répertoire de l'application</h4>
-        </div>
-        
-        <h3>VII. Bonnes pratiques</h3>
+        <h3>VIII. Bonnes pratiques</h3>
         <div class="section-content">
             <h4>• Faites une sauvegarde de vos fichiers avant la compilation</h4>
             <h4>• Vérifiez que tous les fichiers ont une structure similaire</h4>
             <h4>• Pour les gros fichiers, traitez-les par lots</h4>
             <h4>• Utilisez des noms explicites pour les fichiers de sortie</h4>
             <h4>• Activez la vérification préliminaire pour éviter les erreurs</h4>
-        </div>" \
-            """
+            <h4>• Prévisualisez les données avant compilation pour vérifier leur structure</h4>
+        </div>
+        """
 
         # Création de l'étiquette avec le texte d'aide
         help_label = QLabel(help_text)
@@ -1599,27 +2773,26 @@ class ModernExcelCompilerApp(QMainWindow):
         
         layout.addWidget(scroll)
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "Aide")
-
-
+        self.tabs.addTab(tab, self.translate("help"))
+    
     def create_about_tab(self):
         """Crée l'onglet À propos."""
         tab = QWidget()
         layout = QVBoxLayout()
         
-        about_text = """
+        about_text = f"""
         <div style="text-align: center; margin: 50px 20px;">
-            <h1 style="color: #2e7d32; margin-bottom: 30px;">Compilateur Excel Professionnel</h1>
-            <h2>Version 2.0</h2>
+            <h1 style="color: #{COLORS['PRIMARY']}; margin-bottom: 30px;">{self.translate("app_title")}</h1>
+            <h2>Version 3.0</h2>
             <p style="font-size: 16px; margin: 30px 0;">
                 Développé par:<br>
-                <strong style="font-size: 20px; color: #1b5e20;">GOUNOU N'GOBI Chabi Zimé</strong><br>
-                Data Manager & Data Analyst
+                <strong style="font-size: 20px; color: #{COLORS['PRIMARY_DARK']};">{self.translate("developer_name")}</strong><br>
+                {self.translate("developer_title")}<br>
             <h2>Email : zimkada@gmail.com</h2>
             
             </p>
             <p style="margin-top: 40px; color: #555; font-style: italic;">
-                Copyright © 2025. Tous droits réservés.
+                Copyright © 2025. {self.translate("copyright_notice")}
             </p>
         </div>
         """
@@ -1629,7 +2802,7 @@ class ModernExcelCompilerApp(QMainWindow):
         layout.addWidget(label)
         
         tab.setLayout(layout)
-        self.tabs.addTab(tab, "À propos")
+        self.tabs.addTab(tab, self.translate("about"))
     
     def connect_signals(self):
         """Connecte les signaux aux slots."""
@@ -1646,120 +2819,474 @@ class ModernExcelCompilerApp(QMainWindow):
         
         # Option de vérification préliminaire
         self.checkbox_verify_files.stateChanged.connect(self.toggle_verification)
+        
+        # Format de date
+        self.date_radio_group.buttonClicked.connect(self.on_date_format_changed)
+        self.date_custom_edit.textChanged.connect(self.on_date_custom_format_changed)
+    
+    def update_ui_language(self):
+        """Met à jour la langue de l'interface utilisateur."""
+        # Mettre à jour le titre de la fenêtre
+        self.setWindowTitle(self.translate("app_title"))
+        
+        # Mettre à jour les onglets
+        self.tabs.setTabText(0, self.translate("compilation_options"))
+        self.tabs.setTabText(1, self.translate("advanced_options"))
+        self.tabs.setTabText(2, self.translate("date_format"))
+        self.tabs.setTabText(3, self.translate("preview"))
+        self.tabs.setTabText(4, self.translate("help"))
+        self.tabs.setTabText(5, self.translate("about"))
+        
+        # Mettre à jour les groupes
+        for group in self.findChildren(QGroupBox):
+            if group.title() == "Sélection des fichiers" or group.title() == "File Selection":
+                group.setTitle(self.translate("file_selection"))
+            elif group.title() == "Options de compilation" or group.title() == "Compilation Options":
+                group.setTitle(self.translate("compilation_options"))
+            elif group.title() == "Formats de fichiers supportés" or group.title() == "Supported File Formats":
+                group.setTitle(self.translate("file_formats"))
+            elif group.title().startswith("Options de format de date") or group.title().startswith("Date Format Options"):
+                group.setTitle(self.translate("date_format_options"))
+        
+        # Mettre à jour les labels
+        self.label_directory.setText(self.translate("no_directory") if not self.directory else self.directory)
+        self.label_header_start.setText(self.translate("header_start_row"))
+        self.label_header.setText(self.translate("header_rows"))
+        self.label_output_name.setText(self.translate("output_filename"))
+        self.label_sort_column.setText(self.translate("sort_column"))
+        self.update_datetime()
+        self.update_selection_count()
+        
+        # Mettre à jour les checkboxes
+        self.checkbox_all_files.setText(self.translate("select_all_files"))
+        self.checkbox_repeat_header.setText(self.translate("repeat_headers"))
+        self.checkbox_merge_headers.setText(self.translate("merge_headers"))
+        self.checkbox_add_filename.setText(self.translate("add_filename"))
+        self.checkbox_verify_files.setText(self.translate("enable_verification"))
+        self.checkbox_remove_duplicates.setText(self.translate("remove_duplicates"))
+        self.checkbox_remove_empty_rows.setText(self.translate("remove_empty_rows"))
+        self.checkbox_sort_data.setText(self.translate("sort_data"))
+        self.checkbox_auto_width.setText(self.translate("auto_width"))
+        self.checkbox_freeze_header.setText(self.translate("freeze_headers"))
+        self.checkbox_excel.setText(self.translate("excel_files"))
+        self.checkbox_csv.setText(self.translate("csv_files"))
+        
+        # Mettre à jour les boutons
+        self.button_choose_directory.setText(self.translate("choose_directory"))
+        self.button_compile.setText(self.translate("start_compilation"))
+        self.preview_refresh_button.setText(self.translate("refresh_preview"))
+        
+        # Mettre à jour les boutons radio du format de date
+        for format_key, label_key in [
+            ("STANDARD", "date_format_standard"),
+            ("FRENCH", "date_format_french"),
+            ("US", "date_format_us"),
+            ("DATETIME", "date_format_datetime"),
+            ("DATETIME_FRENCH", "date_format_datetime_french"),
+            ("DATE_ONLY", "date_format_date_only"),
+            ("TIME_ONLY", "date_format_time_only"),
+            ("SHORT", "date_format_short"),
+            ("CUSTOM", "date_format_custom")
+        ]:
+            if format_key in self.date_radio_buttons:
+                self.date_radio_buttons[format_key].setText(self.translate(label_key))
+        
+        # Recréer le menu
+        menubar = self.menuBar()
+        menubar.clear()
+        self.create_menu()
+        
+        # Mettre à jour les infos de prévisualisation
+        self.preview_info_label.setText(self.translate("preview_limited", 200))
+        
+        # Recréer la barre d'outils
+        for toolbar in self.findChildren(QToolBar):
+            self.removeToolBar(toolbar)
+        self.create_toolbar()
+        
+        # Recharger les onglets d'aide et à propos
+        self.tabs.removeTab(5)  # À propos
+        self.tabs.removeTab(4)  # Aide
+        self.create_help_tab()
+        self.create_about_tab()
+    
+    def update_datetime(self):
+        """Met à jour l'affichage de la date et de l'heure."""
+        current_datetime = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        self.datetime_label.setText(self.translate("date_time", current_datetime))
     
     def toggle_verification(self, state):
         """Active ou désactive la vérification préliminaire des fichiers."""
         self.verification_enabled = state == Qt.CheckState.Checked.value
-    
-    def choose_directory(self):
-        """Ouvre un dialogue pour choisir un répertoire et affiche les fichiers Excel et CSV."""
-        directory = QFileDialog.getExistingDirectory(self, "Choisir un répertoire")
-        if directory:
-            self.directory = directory
-            self.label_directory.setText(directory)
-            self.load_files()
-    
-    def load_files(self):
-        """Charge les fichiers Excel et CSV du répertoire sélectionné."""
-        self.list_files.clear()
-        
-        if self.directory and os.path.isdir(self.directory):
-            for file in os.listdir(self.directory):
-                if self.checkbox_excel.isChecked() and file.lower().endswith(('.xlsx', '.xls')):
-                    self.list_files.addItem(file)
-                elif self.checkbox_csv.isChecked() and file.lower().endswith('.csv'):
-                    self.list_files.addItem(file)
     
     def toggle_all_files(self, state):
         """Sélectionne ou désélectionne tous les fichiers."""
         for i in range(self.list_files.count()):
             self.list_files.item(i).setSelected(state == Qt.CheckState.Checked.value)
     
+    def select_all_files(self):
+        """Sélectionne tous les fichiers."""
+        self.checkbox_all_files.setChecked(True)
+    
+    def deselect_all_files(self):
+        """Désélectionne tous les fichiers."""
+        self.checkbox_all_files.setChecked(False)
+    
+    def invert_file_selection(self):
+        """Inverse la sélection des fichiers."""
+        for i in range(self.list_files.count()):
+            item = self.list_files.item(i)
+            item.setSelected(not item.isSelected())
+    
     def update_selection_count(self):
         """Met à jour le compteur de fichiers sélectionnés."""
         selected_count = len(self.list_files.selectedItems())
-        self.label_file_count.setText(f"{selected_count} fichier(s) sélectionné(s)")
+        self.label_file_count.setText(self.translate("files_selected", selected_count))
         self.button_compile.setEnabled(selected_count > 0)
     
     def toggle_sort_options(self, state):
         """Active ou désactive les options de tri."""
         self.lineedit_sort_column.setEnabled(state == Qt.CheckState.Checked.value)
     
-    def show_ip_warning(self):
-        """Affiche l'avertissement de propriété intellectuelle."""
-        dialog = IPWarningDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Rejected:
-            sys.exit(0)
-    
-    def verify_files(self, files):
+    def on_date_format_changed(self, button):
         """
-        Vérifie la compatibilité des fichiers avant la compilation.
+        Appelé lorsque l'utilisateur change de format de date.
         
         Args:
-            files: Liste des noms de fichiers à vérifier
-            
-        Returns:
-            Tuple (compatible_files, incompatible_files)
+            button: Bouton radio sélectionné
         """
-        compatible_files = []
-        incompatible_files = []
+        for format_key, radio in self.date_radio_buttons.items():
+            if radio == button:
+                self.date_custom_edit.setEnabled(format_key == "CUSTOM")
+                break
         
-        header_start_row = self.spinbox_header_start.value()
-        header_rows = self.spinbox_header.value()
+        self.update_date_example()
+    
+    def on_date_custom_format_changed(self, text):
+        """
+        Appelé lorsque l'utilisateur modifie le format personnalisé.
         
-        for file in files:
-            file_path = os.path.join(self.directory, file)
-            
-            try:
-                if file.lower().endswith(('.xlsx', '.xls')):
-                    is_compatible, message = FileVerification.verify_excel_file(
-                        file_path, header_start_row, header_rows
-                    )
-                elif file.lower().endswith('.csv'):
-                    is_compatible, message = FileVerification.verify_csv_file(
-                        file_path, header_start_row, header_rows
-                    )
+        Args:
+            text: Nouveau texte du format personnalisé
+        """
+        DATE_FORMATS["CUSTOM"]["format"] = text
+        self.update_date_example()
+    
+    def update_date_example(self):
+        """Met à jour l'exemple de format de date."""
+        now = datetime.now()
+        
+        for format_key, radio in self.date_radio_buttons.items():
+            if radio.isChecked():
+                if format_key == "CUSTOM":
+                    try:
+                        # Convertir le format personnalisé en format de date Python
+                        user_format = self.date_custom_edit.text()
+                        # Remplacer les tokens de format
+                        py_format = user_format.replace("dd", "%d").replace("MM", "%m").replace("yyyy", "%Y")
+                        py_format = py_format.replace("HH", "%H").replace("mm", "%M").replace("ss", "%S")
+                        py_format = py_format.replace("yy", "%y")
+                        
+                        formatted_date = now.strftime(py_format)
+                        self.date_example_label.setText(formatted_date)
+                    except Exception:
+                        self.date_example_label.setText("Format invalide")
                 else:
-                    is_compatible, message = False, "Format de fichier non pris en charge"
-                
-                if is_compatible:
-                    compatible_files.append(file)
-                else:
-                    incompatible_files.append((file, message))
+                    # Utiliser le format prédéfini
+                    date_format = DATE_FORMATS[format_key]["format"]
                     
-            except Exception as e:
-                logging.error(f"Erreur lors de la vérification du fichier {file}: {str(e)}")
-                incompatible_files.append((file, f"Erreur: {str(e)}"))
+                    # Convertir en format Python
+                    py_format = date_format.replace("dd", "%d").replace("MM", "%m").replace("yyyy", "%Y")
+                    py_format = py_format.replace("HH", "%H").replace("mm", "%M").replace("ss", "%S")
+                    py_format = py_format.replace("yy", "%y")
+                    
+                    formatted_date = now.strftime(py_format)
+                    self.date_example_label.setText(formatted_date)
+                break
+    
+    def apply_date_format(self):
+        """Applique le format de date sélectionné."""
+        for format_key, radio in self.date_radio_buttons.items():
+            if radio.isChecked():
+                self.date_format = format_key
+                
+                if format_key == "CUSTOM":
+                    # Enregistrer le format personnalisé
+                    custom_format = self.date_custom_edit.text()
+                    DATE_FORMATS["CUSTOM"]["format"] = custom_format
+                    
+                    # Générer un format Excel personnalisé
+                    excel_format = custom_format
+                    excel_format = excel_format.replace("dd", "dd").replace("MM", "mm").replace("yyyy", "yyyy")
+                    excel_format = excel_format.replace("HH", "hh").replace("mm", "mm").replace("ss", "ss")
+                    excel_format = excel_format.replace("yy", "yy")
+                    
+                    DATE_FORMATS["CUSTOM"]["excel_format"] = excel_format
+                
+                QMessageBox.information(
+                    self,
+                    self.translate("date_format"),
+                    self.translate("settings_saved")
+                )
+                break
+    
+    def on_preview_file_changed(self, index):
+        """
+        Appelé lorsque l'utilisateur change de fichier dans le combobox de prévisualisation.
         
-        return compatible_files, incompatible_files
+        Args:
+            index: Index du fichier sélectionné
+        """
+        if index >= 0:
+            self.refresh_preview()
+
+    def refresh_preview(self):
+        """Actualise la prévisualisation du fichier sélectionné."""
+        if not self.directory or self.preview_combo.count() == 0:
+            return
+        
+        current_index = self.preview_combo.currentIndex()
+        if current_index < 0:
+            return
+        
+        selected_file = self.preview_combo.itemText(current_index)
+        file_path = os.path.join(self.directory, selected_file)
+        
+        try:
+            if selected_file.lower().endswith(('.xlsx', '.xls')):
+                self.load_excel_preview_tab(file_path)
+            elif selected_file.lower().endswith('.csv'):
+                self.load_csv_preview_tab(file_path)
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                self.translate("error"),
+                f"{self.translate('error')}: {str(e)}"
+            )
+    
+    def load_excel_preview_tab(self, file_path):
+        """
+        Charge la prévisualisation d'un fichier Excel dans l'onglet prévisualisation.
+        
+        Args:
+            file_path: Chemin du fichier Excel à prévisualiser
+        """
+        try:
+            wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+            ws = wb.active
+            
+            # Obtenir les données (limité à 200 lignes)
+            preview_data = []
+            headers = []
+            
+            # Récupérer les en-têtes
+            header_start = self.spinbox_header_start.value()
+            header_rows = self.spinbox_header.value()
+            
+            for row in range(header_start, header_start + header_rows):
+                header_row = []
+                for cell in ws[row]:
+                    header_row.append(cell.value)
+                headers.append(header_row)
+            
+            # Récupérer les données
+            row_count = 0
+            for row in ws.iter_rows(min_row=header_start + header_rows):
+                if row_count >= 200:
+                    break
+                
+                row_data = [cell.value for cell in row]
+                preview_data.append(row_data)
+                row_count += 1
+            
+            # Afficher les données
+            self.display_preview_tab(headers, preview_data)
+            
+            wb.close()
+        except Exception as e:
+            raise ValueError(f"Erreur lors de la lecture du fichier Excel: {str(e)}")
+    
+    def load_csv_preview_tab(self, file_path):
+        """
+        Charge la prévisualisation d'un fichier CSV dans l'onglet prévisualisation.
+        
+        Args:
+            file_path: Chemin du fichier CSV à prévisualiser
+        """
+        try:
+            # Détection de l'encodage du fichier
+            encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
+            delimiter = ','
+            
+            for encoding in encodings:
+                try:
+                    with open(file_path, 'r', encoding=encoding) as f:
+                        sample = f.read(4096)
+                        sniffer = csv.Sniffer()
+                        delimiter = sniffer.sniff(sample).delimiter
+                        break
+                except Exception:
+                    continue
+            
+            # Lecture du CSV avec pandas
+            df = pd.read_csv(file_path, delimiter=delimiter, header=None, encoding=encoding)
+            
+            # Limiter le nombre de lignes
+            if len(df) > 200 + self.spinbox_header_start.value() + self.spinbox_header.value():
+                df = df.iloc[:(200 + self.spinbox_header_start.value() + self.spinbox_header.value())]
+            
+            # Récupérer les en-têtes
+            headers = []
+            header_start = self.spinbox_header_start.value() - 1
+            header_rows = self.spinbox_header.value()
+            
+            for row in range(header_start, header_start + header_rows):
+                if row < len(df):
+                    headers.append(df.iloc[row].tolist())
+            
+            # Récupérer les données
+            preview_data = []
+            for row in range(header_start + header_rows, len(df)):
+                preview_data.append(df.iloc[row].tolist())
+            
+            # Afficher les données
+            self.display_preview_tab(headers, preview_data)
+            
+        except Exception as e:
+            raise ValueError(f"Erreur lors de la lecture du fichier CSV: {str(e)}")
+    
+    def display_preview_tab(self, headers, data):
+        """
+        Affiche les données dans le tableau de prévisualisation de l'onglet.
+        
+        Args:
+            headers: Données d'en-tête
+            data: Données à afficher
+        """
+        if not headers or not headers[0]:
+            return
+        
+        # Configurer le tableau
+        self.preview_table.clear()
+        self.preview_table.setRowCount(len(data))
+        self.preview_table.setColumnCount(len(headers[-1]))
+        
+        # Définir les en-têtes des colonnes
+        self.preview_table.setHorizontalHeaderLabels([str(h) if h is not None else "" for h in headers[-1]])
+        
+        # Ajouter les données
+        for row_idx, row_data in enumerate(data):
+            for col_idx, value in enumerate(row_data[:len(headers[-1])]):
+                item = QTableWidgetItem(str(value) if value is not None else "")
+                self.preview_table.setItem(row_idx, col_idx, item)
+        
+        # Ajuster la taille des colonnes
+        self.preview_table.resizeColumnsToContents()
+        
+        # Mettre à jour l'étiquette d'information
+        if len(data) >= 200:
+            self.preview_info_label.setText(self.translate("preview_limited", 200))
+        else:
+            self.preview_info_label.setText(f"{len(data)} lignes affichées")
+
+    # =====================================================
+    # PARTIE 9: MÉTHODES PRINCIPALES
+    # =====================================================
+    
+    def choose_directory(self):
+        """Ouvre une boîte de dialogue pour choisir le répertoire de travail."""
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            self.translate("choose_directory"),
+            self.directory if self.directory else os.path.expanduser("~")
+        )
+        
+        if directory:
+            self.directory = directory
+            self.label_directory.setText(directory)
+            self.load_files()
+            logging.info(f"Répertoire sélectionné: {directory}")
+    
+    def load_files(self):
+        """Charge la liste des fichiers Excel et CSV du répertoire sélectionné."""
+        if not self.directory:
+            return
+        
+        self.files = []
+        self.list_files.clear()
+        self.preview_combo.clear()
+        
+        # Extensions supportées
+        excel_extensions = ['.xlsx', '.xls'] if True else []
+        csv_extensions = ['.csv'] if self.checkbox_csv.isChecked() else []
+        extensions = excel_extensions + csv_extensions
+        
+        try:
+            for file in os.listdir(self.directory):
+                if any(file.lower().endswith(ext) for ext in extensions):
+                    self.files.append(file)
+                    item = QListWidgetItem(file)
+                    self.list_files.addItem(item)
+                    self.preview_combo.addItem(file)
+            
+            logging.info(f"Fichiers chargés: {len(self.files)} fichiers trouvés")
+            
+            # Mettre à jour le compteur
+            self.update_selection_count()
+            
+            # Précharger la prévisualisation du premier fichier si disponible
+            if self.files:
+                self.refresh_preview()
+                
+        except PermissionError:
+            QMessageBox.warning(
+                self,
+                self.translate("error"),
+                "Accès au répertoire refusé. Vérifiez vos permissions."
+            )
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                self.translate("error"),
+                f"Erreur lors du chargement des fichiers: {str(e)}"
+            )
     
     def compile_files(self):
         """Lance la compilation des fichiers sélectionnés."""
-        selected_items = self.list_files.selectedItems()
+        selected_files = [item.text() for item in self.list_files.selectedItems()]
         
-        if not selected_items:
-            QMessageBox.warning(self, "Aucun fichier sélectionné",
-                                "Veuillez sélectionner au moins un fichier à compiler.")
+        if not selected_files:
+            QMessageBox.warning(
+                self,
+                self.translate("warning"),
+                self.translate("select_files_message")
+            )
             return
         
-        selected_files = [item.text() for item in selected_items]
-        
-        # Vérification préliminaire des fichiers si activée
+        # Vérification préliminaire si activée
         if self.verification_enabled:
             compatible_files, incompatible_files = self.verify_files(selected_files)
             
             if incompatible_files:
+                # Afficher le rapport de vérification
                 dialog = VerificationReportDialog(self, compatible_files, incompatible_files)
                 result = dialog.exec()
                 
                 if result == QDialog.DialogCode.Rejected:
-                    return
-                    
-                # Si l'utilisateur a choisi de continuer uniquement avec les fichiers compatibles
+                    return  # L'utilisateur a annulé
+                
                 if dialog.continue_with_compatible:
+                    # Continuer avec seulement les fichiers compatibles
                     selected_files = compatible_files
+                    if not selected_files:
+                        QMessageBox.information(
+                            self,
+                            self.translate("info"),
+                            "Aucun fichier compatible pour la compilation."
+                        )
+                        return
         
-        # Préparation des paramètres
+        # Préparer les paramètres de compilation
         header_start_row = self.spinbox_header_start.value()
         header_rows = self.spinbox_header.value()
         add_filename = self.checkbox_add_filename.isChecked()
@@ -1769,184 +3296,539 @@ class ModernExcelCompilerApp(QMainWindow):
         remove_empty_rows = self.checkbox_remove_empty_rows.isChecked()
         remove_duplicates = self.checkbox_remove_duplicates.isChecked()
         
-        # Configuration de la barre de progression
+        # Désactiver le bouton et afficher la barre de progression
+        self.button_compile.setEnabled(False)
+        self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(len(selected_files))
         self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(True)
-        self.status_label.setText("Compilation en cours...")
+        self.status_label.setText(self.translate("compilation_in_progress"))
         
-        # Création et démarrage du worker de compilation
+        # Créer et démarrer le worker
         self.compilation_worker = CompilationWorker(
-            selected_files, self.directory, header_start_row, header_rows,
-            add_filename, sort_data, sort_column, repeat_headers, 
-            remove_empty_rows, remove_duplicates
+            selected_files,
+            self.directory,
+            header_start_row,
+            header_rows,
+            add_filename,
+            sort_data,
+            sort_column,
+            repeat_headers,
+            remove_empty_rows,
+            remove_duplicates,
+            self.date_format
         )
         
+        # Connecter les signaux
         self.compilation_worker.progress.connect(self.update_progress)
-        self.compilation_worker.error.connect(self.show_error_message)
+        self.compilation_worker.error.connect(self.compilation_error)
         self.compilation_worker.finished.connect(self.compilation_finished)
-        
-        # Désactiver l'interface pendant la compilation
-        self.set_ui_enabled(False)
         
         # Démarrer la compilation
         self.compilation_worker.start()
+        
+        logging.info(f"Début de la compilation de {len(selected_files)} fichiers")
+    
+    def verify_files(self, file_list):
+        """
+        Vérifie la compatibilité des fichiers pour la compilation.
+        
+        Args:
+            file_list: Liste des noms de fichiers à vérifier
+            
+        Returns:
+            Tuple[List[str], List[Tuple[str, str]]]: (fichiers_compatibles, fichiers_incompatibles_avec_raisons)
+        """
+        compatible_files = []
+        incompatible_files = []
+        
+        header_start_row = self.spinbox_header_start.value()
+        header_rows = self.spinbox_header.value()
+        
+        # Créer une barre de progression pour la vérification
+        progress_dialog = QProgressDialog(
+            "Vérification des fichiers en cours...",
+            "Annuler",
+            0,
+            len(file_list),
+            self
+        )
+        progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        
+        for i, file_name in enumerate(file_list):
+            if progress_dialog.wasCanceled():
+                break
+                
+            progress_dialog.setValue(i)
+            progress_dialog.setLabelText(f"Vérification: {file_name}")
+            
+            file_path = os.path.join(self.directory, file_name)
+            
+            try:
+                if file_name.lower().endswith(('.xlsx', '.xls')):
+                    is_compatible, reason = FileVerification.verify_excel_file(
+                        file_path, header_start_row, header_rows
+                    )
+                elif file_name.lower().endswith('.csv'):
+                    is_compatible, reason = FileVerification.verify_csv_file(
+                        file_path, header_start_row, header_rows
+                    )
+                else:
+                    is_compatible = False
+                    reason = "Format de fichier non supporté"
+                
+                if is_compatible:
+                    compatible_files.append(file_name)
+                else:
+                    incompatible_files.append((file_name, reason))
+                    
+            except Exception as e:
+                incompatible_files.append((file_name, f"Erreur inattendue: {str(e)}"))
+        
+        progress_dialog.setValue(len(file_list))
+        progress_dialog.close()
+        
+        return compatible_files, incompatible_files
+    
+    def show_preview(self):
+        """Affiche la boîte de dialogue de prévisualisation des données."""
+        selected_files = [item.text() for item in self.list_files.selectedItems()]
+        
+        if not selected_files:
+            QMessageBox.information(
+                self,
+                self.translate("preview"),
+                "Veuillez sélectionner au moins un fichier à prévisualiser."
+            )
+            return
+        
+        try:
+            dialog = PreviewDialog(
+                self,
+                self.directory,
+                selected_files,
+                self.spinbox_header_start.value(),
+                self.spinbox_header.value()
+            )
+            dialog.exec()
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                self.translate("error"),
+                f"Erreur lors de la prévisualisation: {str(e)}"
+            )
+    
+    def show_date_format_dialog(self):
+        """Affiche la boîte de dialogue de choix du format de date."""
+        dialog = DateFormatDialog(self, self.date_format)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.date_format = dialog.get_selected_format()
+            
+            # Mettre à jour l'onglet format de date
+            if self.date_format in self.date_radio_buttons:
+                self.date_radio_buttons[self.date_format].setChecked(True)
+                if self.date_format == "CUSTOM":
+                    self.date_custom_edit.setEnabled(True)
+                    self.date_custom_edit.setText(DATE_FORMATS["CUSTOM"]["format"])
+                else:
+                    self.date_custom_edit.setEnabled(False)
+            
+            self.update_date_example()
+    
+    def show_language_dialog(self):
+        """Affiche la boîte de dialogue de choix de langue."""
+        dialog = LanguageDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_language = dialog.get_selected_language()
+            TranslationManager().set_language(new_language)
+    
+    def show_about_dialog(self):
+        """Affiche la boîte de dialogue À propos."""
+        QMessageBox.about(
+            self,
+            self.translate("about"),
+            f"""<h2>{self.translate("app_title")}</h2>
+            <p>Version 3.0</p>
+            <p>Développé par: <b>{self.translate("developer_name")}</b></p>
+            <p>{self.translate("developer_title")}</p>
+            <p>Email: zimkada@gmail.com</p>
+            <p><i>{self.translate("copyright_notice")}</i></p>"""
+        )
+    
+    def show_ip_warning(self):
+        """Affiche l'avertissement de propriété intellectuelle au démarrage."""
+        dialog = IPWarningDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Rejected:
+            # L'utilisateur a choisi de quitter
+            sys.exit(0)
+    
+    def save_settings(self):
+        """Sauvegarde les paramètres actuels."""
+        SettingsManager().save_settings(self)
+        QMessageBox.information(
+            self,
+            self.translate("save_settings"),
+            self.translate("settings_saved")
+        )
+    
+    def load_settings(self):
+        """Charge les paramètres sauvegardés."""
+        if SettingsManager().load_settings(self):
+            QMessageBox.information(
+                self,
+                self.translate("load_settings"),
+                self.translate("settings_loaded")
+            )
+        else:
+            QMessageBox.information(
+                self,
+                self.translate("load_settings"),
+                "Aucun paramètre sauvegardé trouvé."
+            )
+
+    # =====================================================
+    # PARTIE 10: MÉTHODES FINALES
+    # =====================================================
     
     def get_sort_column_index(self):
         """
-        Convertit la lettre de colonne Excel en index (0-indexé).
-        Ex: A -> 0, B -> 1, etc.
-        """
-        sort_column = 0
-        if self.checkbox_sort_data.isChecked():
-            col_name = self.lineedit_sort_column.text().strip().upper()
-            if col_name:
-                # Conversion de la lettre de colonne Excel en index
-                if len(col_name) == 1 and 'A' <= col_name <= 'Z':
-                    sort_column = ord(col_name) - ord('A')
-                elif len(col_name) > 1:
-                    # Gestion des colonnes au-delà de Z (AA, AB, etc.)
-                    sort_column = 0
-                    for char in col_name:
-                        if 'A' <= char <= 'Z':
-                            sort_column = sort_column * 26 + (ord(char) - ord('A') + 1)
-                    sort_column -= 1  # Ajuster pour 0-indexé
+        Obtient l'index de la colonne de tri à partir du texte saisi.
         
-        return max(0, sort_column)
+        Returns:
+            int: Index de la colonne (0-based)
+        """
+        sort_text = self.lineedit_sort_column.text().strip().upper()
+        
+        if not sort_text:
+            return 0
+        
+        # Conversion lettre vers index (A=0, B=1, etc.)
+        if len(sort_text) == 1 and 'A' <= sort_text <= 'Z':
+            return ord(sort_text) - ord('A')
+        
+        # Conversion numéro vers index (1=0, 2=1, etc.)
+        try:
+            return max(0, int(sort_text) - 1)
+        except ValueError:
+            return 0
     
     def update_progress(self, value):
-        """Met à jour la barre de progression."""
+        """
+        Met à jour la barre de progression.
+        
+        Args:
+            value: Valeur actuelle de progression
+        """
         self.progress_bar.setValue(value)
     
-    def show_error_message(self, message):
-        """Affiche un message d'erreur."""
-        QMessageBox.warning(self, "Erreur de compilation", message)
-    
-    def set_ui_enabled(self, enabled):
-        """Active ou désactive l'interface utilisateur."""
-        self.button_compile.setEnabled(enabled)
-        self.button_choose_directory.setEnabled(enabled)
-        self.list_files.setEnabled(enabled)
-        self.checkbox_all_files.setEnabled(enabled)
-        self.tabs.setTabEnabled(1, enabled)  # Onglet options avancées
+    def compilation_error(self, error_message):
+        """
+        Gère les erreurs de compilation.
+        
+        Args:
+            error_message: Message d'erreur
+        """
+        logging.error(f"Erreur de compilation: {error_message}")
+        self.status_label.setText(f"Erreur: {error_message}")
     
     def compilation_finished(self, result):
         """
-        Gestionnaire appelé lorsque la compilation est terminée.
+        Méthode appelée à la fin de la compilation.
         
         Args:
-            result: Tuple contenant les données compilées
+            result: Tuple contenant les résultats de la compilation
         """
         preliminary_info, headers, combined_data, merged_cells, successful_files, failed_files = result
         
         # Réactiver l'interface
-        self.set_ui_enabled(True)
+        self.button_compile.setEnabled(True)
         self.progress_bar.setVisible(False)
         
-        # Vérifier s'il y a des données à écrire
         if not combined_data or not headers:
-            self.status_label.setText("Échec: Aucune donnée à écrire.")
-            QMessageBox.critical(self, "Échec de la compilation", 
-                                 "Aucune donnée valide n'a pu être compilée.")
+            self.status_label.setText(self.translate("no_data"))
+            QMessageBox.warning(
+                self,
+                self.translate("warning"),
+                self.translate("no_data_message")
+            )
             return
         
-        # Obtenir le nom du fichier de sortie
-        output_name = self.lineedit_output_name.text().strip()
-        if not output_name.lower().endswith('.xlsx'):
-            output_name += '.xlsx'
+        # Générer le nom du fichier de sortie
+        output_filename = self.lineedit_output_name.text().strip()
+        if not output_filename:
+            output_filename = "compilation"
         
-        output_path = os.path.join(self.directory, output_name)
+        if not output_filename.endswith('.xlsx'):
+            output_filename += '.xlsx'
+        
+        output_path = os.path.join(self.directory, output_filename)
         
         try:
-            # Création du workbook de sortie
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            
-            # Écrire les informations préliminaires
-            current_row = ExcelFormatter.write_preliminary_info(ws, preliminary_info)
-            
-            # Écrire les en-têtes
-            header_row = ExcelFormatter.write_headers(ws, headers, current_row)
-            
-            # Écrire les données
-            ExcelFormatter.write_data(ws, combined_data, header_row)
-            
-            # Appliquer les cellules fusionnées si l'option est activée
-            if self.checkbox_merge_headers.isChecked() and merged_cells:
-                ExcelFormatter.apply_merged_cells(
-                    ws, merged_cells, self.spinbox_header_start.value(), current_row
-                )
-            
-            # Ajuster la largeur des colonnes si l'option est activée
-            if self.checkbox_auto_width.isChecked():
-                ExcelFormatter.adjust_column_widths(ws)
-            
-            # Figer les volets si l'option est activée
-            if self.checkbox_freeze_header.isChecked():
-                ExcelFormatter.freeze_header(ws, header_row)
-            
-            # Sauvegarder le fichier
-            wb.save(output_path)
-            
-            # Mettre à jour le statut
-            self.status_label.setText(f"Compilation terminée. Fichier enregistré : {output_name}")
+            # Écrire les données dans le fichier Excel
+            self.write_excel_file(
+                output_path,
+                preliminary_info,
+                headers,
+                combined_data,
+                merged_cells
+            )
             
             # Afficher le rapport de compilation
-            dialog = CompilationReportDialog(self, successful_files, failed_files, output_path)
-            dialog.exec()
+            self.show_compilation_report(successful_files, failed_files, output_path)
+            
+            self.status_label.setText(self.translate("compilation_complete", output_path))
+            logging.info(f"Compilation terminée: {output_path}")
             
         except PermissionError:
-            self.status_label.setText("Échec: Le fichier de sortie est ouvert dans une autre application.")
-            QMessageBox.critical(self, "Erreur de compilation", 
-                                 "Le fichier de sortie est ouvert dans une autre application. Veuillez le fermer et réessayer.")
+            self.status_label.setText(self.translate("file_open_error"))
+            QMessageBox.warning(
+                self,
+                self.translate("error"),
+                self.translate("file_open_error_message")
+            )
         except Exception as e:
-            self.status_label.setText(f"Échec: {str(e)}")
-            logging.error(f"Erreur lors de la création du fichier de sortie: {str(e)}")
-            logging.error(traceback.format_exc())
-            QMessageBox.critical(self, "Erreur de compilation", 
-                                 f"Une erreur est survenue lors de la création du fichier de sortie:\n{str(e)}")
-
-
-# Tests unitaires pour les classes
-class TestFileVerification(unittest.TestCase):
-    """Tests unitaires pour la classe FileVerification."""
+            error_msg = str(e)
+            self.status_label.setText(self.translate("compilation_failed", error_msg))
+            QMessageBox.critical(
+                self,
+                self.translate("error"),
+                self.translate("compilation_failed", error_msg)
+            )
+            logging.error(f"Erreur lors de l'écriture: {error_msg}")
     
-    def test_verify_excel_file(self):
-        """Teste la vérification des fichiers Excel."""
-        # Ce test nécessiterait des fichiers Excel de test
-        pass
+    def write_excel_file(self, output_path, preliminary_info, headers, data, merged_cells):
+        """
+        Écrit les données compilées dans un fichier Excel.
+        
+        Args:
+            output_path: Chemin du fichier de sortie
+            preliminary_info: Informations préliminaires
+            headers: En-têtes
+            data: Données
+            merged_cells: Cellules fusionnées
+        """
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Compilation"
+        
+        current_row = 1
+        
+        # Écrire les informations préliminaires
+        if preliminary_info:
+            current_row = ExcelFormatter.write_preliminary_info(ws, preliminary_info)
+        
+        # Écrire les en-têtes
+        if headers:
+            header_start_row = current_row
+            current_row = ExcelFormatter.write_headers(ws, headers, current_row)
+            
+            # Appliquer les cellules fusionnées
+            if merged_cells:
+                ExcelFormatter.apply_merged_cells(
+                    ws, merged_cells, 
+                    self.spinbox_header_start.value(), 
+                    header_start_row
+                )
+        
+        # Écrire les données
+        if data:
+            ExcelFormatter.write_data(ws, data, current_row, self.date_format)
+        
+        # Appliquer le formatage
+        if self.checkbox_auto_width.isChecked():
+            ExcelFormatter.adjust_column_widths(ws)
+        
+        if self.checkbox_freeze_header.isChecked() and headers:
+            freeze_row = header_start_row + len(headers) if preliminary_info else len(headers) + 1
+            ExcelFormatter.freeze_header(ws, freeze_row)
+        
+        # Sauvegarder le fichier
+        wb.save(output_path)
     
-    def test_verify_csv_file(self):
-        """Teste la vérification des fichiers CSV."""
-        # Ce test nécessiterait des fichiers CSV de test
-        pass
+    def show_compilation_report(self, successful_files, failed_files, output_path):
+        """
+        Affiche le rapport de compilation.
+        
+        Args:
+            successful_files: Liste des fichiers compilés avec succès
+            failed_files: Liste des fichiers échoués
+            output_path: Chemin du fichier de sortie
+        """
+        dialog = CompilationReportDialog(self, successful_files, failed_files, output_path)
+        dialog.exec()
+    
+    def closeEvent(self, event):
+        """
+        Gère la fermeture de l'application.
+        
+        Args:
+            event: Événement de fermeture
+        """
+        # Sauvegarder automatiquement les paramètres
+        SettingsManager().save_settings(self)
+        
+        # Arrêter le worker s'il est en cours d'exécution
+        if self.compilation_worker and self.compilation_worker.isRunning():
+            self.compilation_worker.terminate()
+            self.compilation_worker.wait()
+        
+        # Arrêter le timer de date/heure
+        if hasattr(self, 'datetime_timer'):
+            self.datetime_timer.stop()
+        
+        logging.info("Application fermée")
+        event.accept()
 
 
-class TestCompilationWorker(unittest.TestCase):
-    """Tests unitaires pour la classe CompilationWorker."""
-    
-    def test_sort_data(self):
-        """Teste le tri des données."""
-        worker = CompilationWorker([], "", 1, 1)
-        data = [["B", 2], ["A", 1], ["C", 3]]
-        headers = [["Col1", "Col2"]]
-        worker.sort_column = 0
-        sorted_data = worker._sort_data(data, headers)
-        self.assertEqual(sorted_data[0][0], "A")
-        self.assertEqual(sorted_data[1][0], "B")
-        self.assertEqual(sorted_data[2][0], "C")
-    
-    def test_remove_duplicate_rows(self):
-        """Teste la suppression des doublons."""
-        worker = CompilationWorker([], "", 1, 1)
-        data = [["A", 1], ["B", 2], ["A", 1], ["C", 3]]
-        deduplicated = worker._remove_duplicate_rows(data)
-        self.assertEqual(len(deduplicated), 3)
+# =====================================================
+# TESTS UNITAIRES
+# =====================================================
 
-# Point d'entrée de l'application
+class TestExcelCompiler(unittest.TestCase):
+    """Tests unitaires pour l'application."""
+    
+    def setUp(self):
+        """Configuration des tests."""
+        self.app = QApplication([])
+        self.compiler = ModernExcelCompilerApp()
+    
+    def tearDown(self):
+        """Nettoyage après les tests."""
+        self.compiler.close()
+        self.app.quit()
+    
+    def test_translation_manager(self):
+        """Test du gestionnaire de traduction."""
+        tm = TranslationManager()
+        
+        # Test changement de langue
+        tm.set_language("en")
+        self.assertEqual(tm.current_language, "en")
+        self.assertEqual(tm.get_text("app_title"), "Professional Excel Compiler")
+        
+        tm.set_language("fr")
+        self.assertEqual(tm.current_language, "fr")
+        self.assertEqual(tm.get_text("app_title"), "Compilateur Excel Professionnel")
+    
+    def test_file_verification(self):
+        """Test de la vérification des fichiers."""
+        # Créer un fichier de test temporaire
+        import tempfile
+        
+        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as temp_file:
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws['A1'] = 'Test Header'
+            ws['A2'] = 'Test Data'
+            wb.save(temp_file.name)
+            
+            # Test de vérification
+            is_compatible, reason = FileVerification.verify_excel_file(
+                temp_file.name, 1, 1
+            )
+            self.assertTrue(is_compatible)
+            
+        # Nettoyer
+        os.unlink(temp_file.name)
+    
+    def test_date_formats(self):
+        """Test des formats de date."""
+        self.assertIn("STANDARD", DATE_FORMATS)
+        self.assertIn("FRENCH", DATE_FORMATS)
+        self.assertIn("format", DATE_FORMATS["FRENCH"])  
+        self.assertIn("excel_format", DATE_FORMATS["FRENCH"])
+    
+    def test_sort_column_conversion(self):
+        """Test de la conversion des colonnes de tri."""
+        self.compiler.lineedit_sort_column.setText("A")
+        self.assertEqual(self.compiler.get_sort_column_index(), 0)
+        
+        self.compiler.lineedit_sort_column.setText("B")
+        self.assertEqual(self.compiler.get_sort_column_index(), 1)
+        
+        self.compiler.lineedit_sort_column.setText("1")
+        self.assertEqual(self.compiler.get_sort_column_index(), 0)
+
+
+# =====================================================
+# FONCTION PRINCIPALE
+# =====================================================
+
+def main():
+    """Fonction principal pour lancer l'application."""
+    try:
+        # Configuration de l'application
+        app = QApplication(sys.argv)
+        app.setApplicationName("Excel Compiler")
+        app.setApplicationVersion("3.0")
+        app.setOrganizationName("GOUNOU N'GOBI")
+        app.setOrganizationDomain("zimkada@gmail.com")
+        
+        # Définir l'icône de l'application si disponible
+        if os.path.exists("icon.jpg"):
+            app.setWindowIcon(QIcon("icon.jpg"))
+        
+        # Style de l'application
+        app.setStyle('Fusion')
+        
+        # Palette de couleurs personnalisée
+        palette = QPalette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
+        palette.setColor(QPalette.ColorRole.Base, QColor(255, 255, 255))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(245, 245, 245))
+        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(255, 255, 220))
+        palette.setColor(QPalette.ColorRole.ToolTipText, QColor(0, 0, 0))
+        palette.setColor(QPalette.ColorRole.Text, QColor(0, 0, 0))
+        palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor(0, 0, 0))
+        palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
+        palette.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(0, 0, 0))
+        app.setPalette(palette)
+        
+        # Créer et afficher la fenêtre principale
+        compiler = ModernExcelCompilerApp()
+        compiler.show()
+        
+        # Configuration du logging pour capturer les erreurs non gérées
+        def handle_exception(exc_type, exc_value, exc_traceback):
+            if issubclass(exc_type, KeyboardInterrupt):
+                sys.__excepthook__(exc_type, exc_value, exc_traceback)
+                return
+            
+            logging.critical("Exception non gérée", exc_info=(exc_type, exc_value, exc_traceback))
+            QMessageBox.critical(
+                None,
+                "Erreur Critique",
+                f"Une erreur inattendue s'est produite:\n{exc_type.__name__}: {exc_value}"
+            )
+        
+        sys.excepthook = handle_exception
+        
+        # Démarrer la boucle d'événements
+        sys.exit(app.exec())
+        
+    except Exception as e:
+        logging.critical(f"Erreur critique au démarrage: {str(e)}")
+        logging.critical(traceback.format_exc())
+        
+        # Créer une application minimale pour afficher l'erreur
+        if 'app' not in locals():
+            app = QApplication(sys.argv)
+        
+        QMessageBox.critical(
+            None,
+            "Erreur de Démarrage",
+            f"Impossible de démarrer l'application:\n{str(e)}\n\nConsultez le fichier de log pour plus de détails."
+        )
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")  # Style moderne
-    window = ModernExcelCompilerApp()
-    window.show()
-    sys.exit(app.exec())
+    main()
+
+    
+
+
