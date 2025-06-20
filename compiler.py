@@ -1,8 +1,8 @@
 """
 Excel Compiler Application
-Version: 3.0
+Version: 3.1
 Auteur: GOUNOU N'GOBI Chabi Zimé (Data Manager, Data Analyst)
-Améliorations: Juin 2025
+Améliorations: Juin 2025 - Support étendu formats Excel et texte
 
 Application pour compiler plusieurs fichiers Excel en un seul fichier avec diverses options de formatage.
 Nouvelles fonctionnalités:
@@ -13,7 +13,6 @@ Nouvelles fonctionnalités:
 
 import sys
 import os
-
 import pandas as pd
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QTabWidget,
@@ -24,7 +23,7 @@ from PyQt6.QtWidgets import (
     QButtonGroup, QSplitter, QToolBar, QMenu, QMenuBar
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize, QSettings, QTranslator, QLocale
-from PyQt6.QtGui import QIcon, QFont, QPalette, QColor, QBrush, QKeySequence, QAction
+from PyQt6.QtGui import QIcon, QFont, QPalette, QColor, QBrush, QKeySequence, QAction  # ← QAction ici !
 from openpyxl.styles import Border, Side, PatternFill, Font, Alignment, numbers
 from openpyxl.utils import get_column_letter
 import openpyxl
@@ -36,12 +35,14 @@ from datetime import datetime
 from typing import List, Tuple, Dict, Optional, Any, Union, Set
 import traceback
 
-
 def resource_path(relative_path):
-        if hasattr(sys, '_MEIPASS'):
-            return os.path.join(sys._MEIPASS, relative_path)
-        return os.path.join(os.path.abspath("."), relative_path)
-
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 # Constants for styles
 COLORS = {
@@ -58,7 +59,6 @@ COLORS = {
     "INFO": "2196F3"
 }
 
-# Pour openpyxl, ajoutez FF au début pour l'opacité
 EXCEL_COLORS = {
     "PRIMARY": "FF2e7d32",
     "PRIMARY_DARK": "FF2e7d32",
@@ -93,12 +93,19 @@ DATE_FORMATS = {
     "CUSTOM": {"format": "", "code": "", "excel_format": ""}
 }
 
-# Configuration du logging
-LOG_FILE = f'excel_compiler_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+# Configuration du logging - Seulement les erreurs critiques
+class LazyFileHandler(logging.FileHandler):
+    def __init__(self, filename):
+        self.baseFilename = filename
+        self.mode = 'w'
+        self.encoding = None
+        self.delay = True  # Important : retarde la création
+        logging.Handler.__init__(self)
+
 logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.ERROR,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[LazyFileHandler('error.log')]
 )
 
 # Dictionnaires pour l'internationalisation
@@ -133,8 +140,8 @@ TRANSLATIONS = {
         "auto_width": "Ajuster automatiquement la largeur des colonnes",
         "freeze_headers": "Figer les en-têtes",
         "file_formats": "Formats de fichiers supportés",
-        "excel_files": "Fichiers Excel (.xlsx, .xls)",
-        "csv_files": "Fichiers CSV (.csv)",
+        "excel_files": "Fichiers Excel (.xlsx, .xlsm, .xltx, .xltm, .xls)",
+        "text_files": "Fichiers texte (.csv, .tsv, .txt)",
         "preview_data": "Prévisualiser les données avant compilation",
         "refresh_preview": "Actualiser l'aperçu",
         "preview_limited": "Aperçu limité aux {} premières lignes",
@@ -143,6 +150,7 @@ TRANSLATIONS = {
         "date_format_french": "Français (JJ/MM/AAAA)",
         "date_format_us": "Américain (MM/JJ/AAAA)",
         "date_format_datetime": "Date et heure (AAAA-MM-JJ HH:MM:SS)",
+        "date_format_datetime_french": "Date et heure française (JJ/MM/AAAA HH:MM:SS)",
         "date_format_date_only": "Date uniquement (AAAA-MM-JJ)",
         "date_format_time_only": "Heure uniquement (HH:MM:SS)",
         "date_format_short": "Format court (JJ/MM/AA)",
@@ -245,8 +253,8 @@ TRANSLATIONS = {
         "auto_width": "Auto-adjust column width",
         "freeze_headers": "Freeze headers",
         "file_formats": "Supported file formats",
-        "excel_files": "Excel files (.xlsx, .xls)",
-        "csv_files": "CSV files (.csv)",
+        "excel_files": "Excel files (.xlsx, .xlsm, .xltx, .xltm, .xls)",
+        "text_files": "Text files (.csv, .tsv, .txt)",
         "preview_data": "Preview data before compilation",
         "refresh_preview": "Refresh preview",
         "preview_limited": "Preview limited to first {} rows",
@@ -255,11 +263,12 @@ TRANSLATIONS = {
         "date_format_french": "French (DD/MM/YYYY)",
         "date_format_us": "US (MM/DD/YYYY)",
         "date_format_datetime": "Date and time (YYYY-MM-DD HH:MM:SS)",
+        "date_format_datetime_french": "French date and time (DD/MM/YYYY HH:MM:SS)",
         "date_format_date_only": "Date only (YYYY-MM-DD)",
         "date_format_time_only": "Time only (HH:MM:SS)",
         "date_format_short": "Short format (DD/MM/YY)",
         "date_format_custom": "Custom:",
-        "language": "Language:",
+        "language": "Language",
         "french": "French",
         "english": "English",
         "apply": "Apply",
@@ -531,33 +540,42 @@ class FileVerification:
     def verify_excel_file(file_path: str, header_start_row: int, header_rows: int) -> Tuple[bool, str]:
         """
         Vérifie si un fichier Excel est compatible pour la compilation.
-        
-        Args:
-            file_path: Chemin complet du fichier à vérifier
-            header_start_row: Ligne de début des en-têtes
-            header_rows: Nombre de lignes d'en-tête
-            
-        Returns:
-            Tuple[bool, str]: (est_compatible, message_d'erreur)
         """
         try:
-            # Essai d'ouverture du fichier
-            wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
-            ws = wb.active
-            
-            # Vérification du nombre de lignes
-            if ws.max_row < header_start_row + header_rows:
-                return False, f"Structure d'en-tête incompatible: le fichier n'a que {ws.max_row} lignes"
+            # Support des nouveaux formats Excel
+            if file_path.lower().endswith(('.xlsx', '.xlsm', '.xltx', '.xltm')):
+                wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+                ws = wb.active
                 
-            # Vérification de la protection du fichier
-            if hasattr(ws, 'protection') and ws.protection.sheet:
-                return False, "Le fichier est protégé en écriture"
+                # Vérification du nombre de lignes
+                if ws.max_row < header_start_row + header_rows:
+                    return False, f"Structure d'en-tête incompatible: le fichier n'a que {ws.max_row} lignes"
+                    
+                # Vérification de la protection du fichier
+                if hasattr(ws, 'protection') and ws.protection.sheet:
+                    return False, "Le fichier est protégé en écriture"
+                    
+                wb.close()
+                return True, "Fichier compatible"
+            
+            elif file_path.lower().endswith('.xls'):
+                # Ancien format Excel - vérification basique
+                try:
+                    wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+                    ws = wb.active
+                    
+                    if ws.max_row < header_start_row + header_rows:
+                        return False, f"Structure d'en-tête incompatible: le fichier n'a que {ws.max_row} lignes"
+                    
+                    wb.close()
+                    return True, "Fichier compatible"
+                except:
+                    # Fallback pour très anciens fichiers .xls
+                    return True, "Fichier probablement compatible (.xls ancien format)"
+            
+            else:
+                return False, "Format Excel non supporté"
                 
-            # Autres vérifications possibles...
-            
-            wb.close()
-            return True, "Fichier compatible"
-            
         except PermissionError:
             return False, "Le fichier est ouvert dans une autre application"
         except Exception as e:
@@ -601,6 +619,62 @@ class FileVerification:
             except Exception as e:
                 return False, f"Erreur d'encodage: {str(e)}"
                 
+        except PermissionError:
+            return False, "Le fichier est ouvert dans une autre application"
+        except Exception as e:
+            return False, f"Erreur lors de la vérification: {str(e)}"
+
+    @staticmethod
+    def verify_text_file(file_path: str, header_start_row: int, header_rows: int) -> Tuple[bool, str]:
+        """
+        Vérifie si un fichier texte délimité est compatible pour la compilation.
+        
+        Args:
+            file_path: Chemin complet du fichier à vérifier
+            header_start_row: Ligne de début des en-têtes
+            header_rows: Nombre de lignes d'en-tête
+            
+        Returns:
+            Tuple[bool, str]: (est_compatible, message_d'erreur)
+        """
+        try:
+            # Détection du délimiteur
+            file_ext = os.path.splitext(file_path)[1].lower()
+            
+            if file_ext == '.tsv':
+                delimiter = '\t'
+            else:
+                # Détection automatique pour .txt
+                encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
+                delimiter = ','
+                
+                for encoding in encodings:
+                    try:
+                        with open(file_path, 'r', encoding=encoding) as f:
+                            sample = f.read(4096)
+                            sniffer = csv.Sniffer()
+                            delimiter = sniffer.sniff(sample).delimiter
+                            break
+                    except Exception:
+                        continue
+            
+            # Compter les lignes du fichier
+            for encoding in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                try:
+                    with open(file_path, 'r', newline='', encoding=encoding) as file:
+                        reader = csv.reader(file, delimiter=delimiter)
+                        row_count = sum(1 for _ in reader)
+                        break
+                except Exception:
+                    continue
+            else:
+                return False, "Erreur d'encodage: impossible de lire le fichier"
+                    
+            if row_count < header_start_row + header_rows:
+                return False, f"Structure d'en-tête incompatible: le fichier n'a que {row_count} lignes"
+                
+            return True, "Fichier compatible"
+            
         except PermissionError:
             return False, "Le fichier est ouvert dans une autre application"
         except Exception as e:
@@ -668,10 +742,14 @@ class CompilationWorker(QThread):
                 file_path = os.path.join(self.directory, file)
                 
                 # Traitement différent selon le type de fichier
-                if file.lower().endswith(('.xlsx', '.xls')):
+                if file.lower().endswith(('.xlsx', '.xlsm', '.xltx', '.xltm')):
+                    result = self._process_excel_file(file_path, i, headers, preliminary_info)
+                elif file.lower().endswith('.xls'):
                     result = self._process_excel_file(file_path, i, headers, preliminary_info)
                 elif file.lower().endswith('.csv'):
                     result = self._process_csv_file(file_path, i, headers, preliminary_info)
+                elif file.lower().endswith(('.tsv', '.txt')):
+                    result = self._process_text_file(file_path, i, headers, preliminary_info)
                 else:
                     raise ValueError(f"Format de fichier non pris en charge: {file}")
                     
@@ -891,6 +969,104 @@ class CompilationWorker(QThread):
                 file_data.append(row_data)
                 
         return file_headers, file_data, file_merged_cells
+    
+    
+    def _process_text_file(self, file_path, file_index, global_headers, preliminary_info):
+        """
+        Traite un fichier texte délimité (.tsv, .txt).
+        
+        Args:
+            file_path: Chemin du fichier
+            file_index: Index du fichier dans la liste
+            global_headers: En-têtes déjà établies
+            preliminary_info: Informations préliminaires
+            
+        Returns:
+            Tuple contenant les en-têtes et données du fichier
+        """
+        # Détection du délimiteur selon l'extension
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        if file_ext == '.tsv':
+            delimiter = '\t'
+        else:  # .txt
+            # Détection automatique du délimiteur
+            encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
+            delimiter = ','  # Par défaut
+            
+            for encoding in encodings:
+                try:
+                    with open(file_path, 'r', encoding=encoding) as f:
+                        sample = f.read(4096)
+                        sniffer = csv.Sniffer()
+                        delimiter = sniffer.sniff(sample).delimiter
+                        break
+                except Exception:
+                    continue
+        
+        # Lecture du fichier avec pandas
+        encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
+        df = None
+        
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(file_path, delimiter=delimiter, header=None, encoding=encoding)
+                break
+            except Exception:
+                continue
+        
+        if df is None:
+            raise ValueError(f"Impossible de lire le fichier avec les encodages disponibles")
+        
+        file_headers = []
+        file_merged_cells = []  # Toujours vide pour les fichiers texte
+        
+        # Capture des informations préliminaires du premier fichier
+        if file_index == 0 and self.header_start_row > 1:
+            for row in range(0, self.header_start_row - 1):
+                if row < len(df):
+                    preliminary_info.append(df.iloc[row].tolist())
+        
+        # Capture des en-têtes du premier fichier ou utilisation des en-têtes globales
+        if global_headers is None:
+            for row in range(self.header_start_row - 1, self.header_start_row - 1 + self.header_rows):
+                if row < len(df):
+                    file_headers.append(df.iloc[row].tolist())
+        else:
+            file_headers = global_headers
+            
+        # Extraction des données
+        file_data = []
+        
+        # Si répétition des en-têtes est activée et ce n'est pas le premier fichier
+        if self.repeat_headers and len(file_data) > 0:
+            # Ajouter une ligne vide comme séparateur
+            file_data.append([None] * (len(file_headers[-1]) + (1 if self.add_filename else 0)))
+            
+            # Ajouter les en-têtes
+            for header_row in file_headers:
+                row_data = header_row.copy()
+                if self.add_filename:
+                    row_data.append(None)
+                file_data.append(row_data)
+        
+        # Ajout des données
+        for row in range(self.header_start_row - 1 + self.header_rows, len(df)):
+            row_data = df.iloc[row].tolist()
+            
+            # Ajouter le nom du fichier si demandé
+            if self.add_filename:
+                row_data.append(os.path.basename(file_path))
+            
+            # Vérifier si la ligne n'est pas vide avant de l'ajouter
+            if not self.remove_empty_rows or not all(
+                pd.isna(cell) or str(cell).strip() == "" 
+                for cell in row_data[:-1 if self.add_filename else None]
+            ):
+                file_data.append(row_data)
+                
+        return file_headers, file_data, file_merged_cells
+    
     
     def _remove_duplicate_rows(self, data):
         """
@@ -1969,8 +2145,7 @@ class ModernExcelCompilerApp(QMainWindow):
         self.compilation_worker = None
         self.verification_enabled = True  # Par défaut, la vérification préliminaire est activée
         self.date_format = "FRENCH"  # Format de date par défaut
-
-
+    
     def setup_ui(self):
         """Configure l'interface utilisateur principale."""
         self.setWindowTitle(self.translate("app_title"))
@@ -1986,6 +2161,173 @@ class ModernExcelCompilerApp(QMainWindow):
                 background-color: #{COLORS["BACKGROUND"]};
             }}
             
+            /* Style pour les labels */
+            QLabel {{
+                color: #{COLORS["DARK_TEXT"]};
+                font-weight: bold;
+            }}
+            
+            /* Style pour les champs de texte */
+            QLineEdit, QTextEdit {{
+                background-color: white;
+                border: 1px solid #{COLORS["PRIMARY_LIGHT"]};
+                border-radius: 4px;
+                padding: 5px;
+            }}
+            QLineEdit:focus, QTextEdit:focus {{
+                border-color: #{COLORS["PRIMARY"]};
+            }}
+            
+            /* Style pour les combobox */
+            QComboBox {{
+                background-color: white;
+                border: 1px solid #{COLORS["PRIMARY_LIGHT"]};
+                border-radius: 4px;
+                padding: 5px;
+            }}
+            QComboBox:focus {{
+                border-color: #{COLORS["PRIMARY"]};
+            }}
+
+            /* Style pour la liste des fichiers */
+            QListWidget::item {{
+                background-color: white;
+                border: 1px solid #{COLORS["PRIMARY_LIGHT"]};
+                border-radius: 3px;
+                margin: 1px;
+                padding: 2px 4px;
+                min-height: 10px;
+            }}
+
+            QListWidget::item:focus {{
+                border: 2px solid #{COLORS["PRIMARY"]};
+                outline: none;
+            }}
+
+            QListWidget::item:selected {{
+                background-color: #{COLORS["ACCENT"]};
+                border: 2px solid #{COLORS["SUCCESS"]};
+                color: #{COLORS["DARK_TEXT"]};
+                font-weight: bold;
+            }}
+
+            QListWidget::item:selected:hover {{
+                background-color: #{COLORS["PRIMARY_LIGHT"]};
+                color: white;
+            }}
+
+            QListWidget::item:!selected {{
+                background-color: white;
+                color: #{COLORS["DARK_TEXT"]};
+            }}
+
+            QListWidget::item:!selected:hover {{
+                background-color: #{COLORS["PRIMARY_LIGHT"]};
+                color: #{COLORS["DARK_TEXT"]};
+            }}
+
+            QListWidget::item:!selected:pressed {{
+                background-color: #{COLORS["PRIMARY_DARK"]};
+                color: white;
+            }}
+
+            /* Style pour les tableaux */
+            QTableWidget {{
+                border: 1px solid #{COLORS["PRIMARY"]};
+                gridline-color: #{COLORS["PRIMARY"]};
+                background-color: white;
+            }}
+
+            QTableWidget::item {{
+                border-bottom: 1px solid #{COLORS["PRIMARY_LIGHT"]};
+            }}
+
+            QTableWidget::item:selected {{
+                background-color: #{COLORS["PRIMARY"]};
+                color: white;
+            }}
+
+            QTableWidget::item:hover {{
+                background-color: #{COLORS["PRIMARY_LIGHT"]};
+                color: #{COLORS["DARK_TEXT"]};
+            }}
+
+            QTableWidget QHeaderView::section {{
+                background-color: #{COLORS["PRIMARY"]};
+                color: white;
+                padding: 5px;
+                border: 1px solid white;
+            }}
+
+            /* Style pour les boutons */
+            QPushButton {{
+                background-color: #{COLORS["PRIMARY"]};
+                color: white;
+                padding: 8px 15px;
+                border-radius: 4px;
+                font-weight: bold;
+                min-height: 30px;
+            }}
+            
+            QPushButton:hover {{
+                background-color: #{COLORS["PRIMARY_DARK"]};
+            }}
+
+            QPushButton:pressed {{
+                background-color: #{COLORS["PRIMARY_LIGHT"]};
+                color: #{COLORS["DARK_TEXT"]};
+            }}
+            
+            QPushButton:disabled {{
+                background-color: #a0a0a0;
+                color: #d0d0d0;
+            }}
+
+            /* Style pour les barres de progression */
+            QProgressBar {{
+                border: 1px solid #{COLORS["PRIMARY"]};
+                border-radius: 4px;
+                text-align: center;
+            }}
+            
+            QProgressBar::chunk {{
+                background-color: #{COLORS["PRIMARY"]};
+                width: 10px;
+                margin: 0.5px;
+            }}
+
+            /* Style pour les barres de défilement */
+            QScrollBar:vertical {{
+                border: 1px solid #{COLORS["PRIMARY_LIGHT"]};
+                background-color: #{COLORS["ACCENT"]};
+                width: 18px;
+                border-radius: 9px;
+                margin: 0px;
+            }}
+
+            QScrollBar::handle:vertical {{
+                background-color: #{COLORS["PRIMARY"]};
+                border-radius: 8px;
+                min-height: 30px;
+                margin: 2px;
+            }}
+
+            QScrollBar::handle:vertical:hover {{
+                background-color: #{COLORS["PRIMARY_DARK"]};
+            }}
+
+            QScrollBar::handle:vertical:pressed {{
+                background-color: #{COLORS["PRIMARY_LIGHT"]};
+            }}
+
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
+
             /* Style pour la barre de menus */
             QMenuBar {{
                 background-color: #{COLORS["PRIMARY"]};
@@ -2011,7 +2353,7 @@ class ModernExcelCompilerApp(QMainWindow):
                 background-color: #{COLORS["PRIMARY_LIGHT"]};
                 color: white;
             }}
-            
+
             /* Style pour la barre d'outils */
             QToolBar {{
                 background-color: #{COLORS["PRIMARY"]};
@@ -2073,62 +2415,21 @@ class ModernExcelCompilerApp(QMainWindow):
                 padding: 0 5px;
             }}
             
-            /* Style pour les boutons */
-            QPushButton {{
-                background-color: #{COLORS["PRIMARY"]};
-                color: white;
-                padding: 8px 15px;
-                border-radius: 4px;
-                font-weight: bold;
-                min-height: 30px;
-            }}
-            
-            QPushButton:hover {{
-                background-color: #{COLORS["PRIMARY_DARK"]};
-            }}
-            
-            QPushButton:disabled {{
-                background-color: #a0a0a0;
-                color: #d0d0d0;
-            }}
-            
-            /* Style pour les tableaux */
-            QTableWidget {{
-                border: 1px solid #{COLORS["PRIMARY"]};
-                gridline-color: #{COLORS["PRIMARY"]};
-            }}
-            
-            QTableWidget QHeaderView::section {{
-                background-color: #{COLORS["PRIMARY"]};
-                color: white;
-                padding: 5px;
-                border: 1px solid white;
-            }}
-            
-            /* Style pour la barre de progression */
-            QProgressBar {{
-                border: 1px solid #{COLORS["PRIMARY"]};
-                border-radius: 4px;
-                text-align: center;
-            }}
-            
-            QProgressBar::chunk {{
-                background-color: #{COLORS["PRIMARY"]};
-                width: 10px;
-                margin: 0.5px;
-            }}
-            
             /* Style pour les checkboxes */
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border: 2px solid #{COLORS["PRIMARY"]};
+                border-radius: 3px;
+                background-color: white;
+            }}
+
             QCheckBox::indicator:checked {{
-                background-color: #{COLORS["PRIMARY"]};
-                border: 1px solid #{COLORS["PRIMARY_DARK"]};
+                background-color: #{COLORS["SUCCESS"]};
+                border: 2px solid #{COLORS["SUCCESS"]};
+                image: none;
             }}
-            
-            /* Style pour les étiquettes de titre */
-            QLabel[accessibleName="title"] {{
-                color: #{COLORS["PRIMARY"]};
-                font-weight: bold;
-            }}
+
             
             /* Style pour les en-têtes de vue */
             QHeaderView::section {{
@@ -2294,11 +2595,11 @@ class ModernExcelCompilerApp(QMainWindow):
         
         # Groupe sélection des fichiers
         files_group = self.create_files_group()
-        layout.addWidget(files_group)
+        layout.addWidget(files_group, 2)  # ← Poids 2 (plus grand)
         
         # Groupe options de compilation
         options_group = self.create_options_group()
-        layout.addWidget(options_group)
+        layout.addWidget(options_group, 1)  # ← Poids 1 (plus petit)
         
         # Barre de progression
         self.progress_bar = QProgressBar()
@@ -2345,7 +2646,6 @@ class ModernExcelCompilerApp(QMainWindow):
         self.button_choose_directory.setFont(QFont("Segoe UI", FONT_SIZES["NORMAL"]))
         self.button_choose_directory.setIcon(QIcon(resource_path("folder.ico")))
         self.button_choose_directory.setStyleSheet(f"background-color: #{COLORS['PRIMARY']}; color: white;")
-
         dir_layout.addWidget(self.label_directory)
         dir_layout.addWidget(self.button_choose_directory)
         layout.addLayout(dir_layout)
@@ -2503,9 +2803,9 @@ class ModernExcelCompilerApp(QMainWindow):
         
         self.checkbox_excel = QCheckBox(self.translate("excel_files"))
         self.checkbox_excel.setChecked(True)
-        self.checkbox_excel.setEnabled(False)  # Toujours activé
+        self.checkbox_excel.setEnabled(False)
         
-        self.checkbox_csv = QCheckBox(self.translate("csv_files"))
+        self.checkbox_csv = QCheckBox(self.translate("text_files"))
         self.checkbox_csv.setChecked(True)
         
         format_files_layout.addWidget(self.checkbox_excel)
@@ -2553,7 +2853,7 @@ class ModernExcelCompilerApp(QMainWindow):
                 custom_layout = QHBoxLayout()
                 custom_layout.addWidget(radio)
                 self.date_custom_edit = QLineEdit()
-                self.date_custom_edit.setPlaceholderText("dd/MM/yyyy HH:mm:ss")
+                self.date_custom_edit.setPlaceholderText("dd/MM/YYYY HH:mm:ss")
                 self.date_custom_edit.setEnabled(False)
                 custom_layout.addWidget(self.date_custom_edit)
                 group_layout.addLayout(custom_layout)
@@ -2715,8 +3015,9 @@ class ModernExcelCompilerApp(QMainWindow):
             <h4>• <b>Figer les en-têtes</b> : Maintient l'en-tête visible lors du défilement</h4>
             
             <h4><u>Formats de fichiers supportés :</u></h4>
-            <h4>• <b>Excel</b> : Traite les fichiers .xlsx et .xls</h4>
-            <h4>• <b>CSV</b> : Traite les fichiers .csv avec détection automatique du délimiteur</h4>
+            <h4>• <b>Excel modernes</b> : .xlsx, .xlsm (avec macros), .xltx/.xltm (modèles)</h4>
+            <h4>• <b>Excel classique</b> : .xls</h4>
+            <h4>• <b>CSV et texte</b> : .csv, .tsv (tabulations), .txt (délimiteur auto-détecté)</h4>
         </div>
         
         <h3>IV. Format de date</h3>
@@ -2783,7 +3084,7 @@ class ModernExcelCompilerApp(QMainWindow):
         about_text = f"""
         <div style="text-align: center; margin: 50px 20px;">
             <h1 style="color: #{COLORS['PRIMARY']}; margin-bottom: 30px;">{self.translate("app_title")}</h1>
-            <h2>Version 3.0</h2>
+            <h2>Version 3.1</h2>
             <p style="font-size: 16px; margin: 30px 0;">
                 Développé par:<br>
                 <strong style="font-size: 20px; color: #{COLORS['PRIMARY_DARK']};">{self.translate("developer_name")}</strong><br>
@@ -2869,7 +3170,8 @@ class ModernExcelCompilerApp(QMainWindow):
         self.checkbox_auto_width.setText(self.translate("auto_width"))
         self.checkbox_freeze_header.setText(self.translate("freeze_headers"))
         self.checkbox_excel.setText(self.translate("excel_files"))
-        self.checkbox_csv.setText(self.translate("csv_files"))
+        self.checkbox_csv.setText(self.translate("text_files"))
+        
         
         # Mettre à jour les boutons
         self.button_choose_directory.setText(self.translate("choose_directory"))
@@ -3053,10 +3355,10 @@ class ModernExcelCompilerApp(QMainWindow):
         file_path = os.path.join(self.directory, selected_file)
         
         try:
-            if selected_file.lower().endswith(('.xlsx', '.xls')):
+            if selected_file.lower().endswith(('.xlsx', '.xls', '.xlsm', '.xltx', '.xltm')):
                 self.load_excel_preview_tab(file_path)
-            elif selected_file.lower().endswith('.csv'):
-                self.load_csv_preview_tab(file_path)
+            elif selected_file.lower().endswith(('.csv', '.tsv', '.txt')):
+                self.load_csv_preview_tab(file_path)  # Fonctionne aussi pour TSV/TXT
         except Exception as e:
             QMessageBox.warning(
                 self,
@@ -3189,9 +3491,9 @@ class ModernExcelCompilerApp(QMainWindow):
         else:
             self.preview_info_label.setText(f"{len(data)} lignes affichées")
 
-    # =====================================================
-    # PARTIE 9: MÉTHODES PRINCIPALES
-    # =====================================================
+    
+    # MÉTHODES PRINCIPALES
+
     
     def choose_directory(self):
         """Ouvre une boîte de dialogue pour choisir le répertoire de travail."""
@@ -3217,8 +3519,8 @@ class ModernExcelCompilerApp(QMainWindow):
         self.preview_combo.clear()
         
         # Extensions supportées
-        excel_extensions = ['.xlsx', '.xls'] if True else []
-        csv_extensions = ['.csv'] if self.checkbox_csv.isChecked() else []
+        excel_extensions = ['.xlsx', '.xls', '.xlsm', '.xltx', '.xltm']
+        csv_extensions = ['.csv', '.tsv', '.txt'] if self.checkbox_csv.isChecked() else []
         extensions = excel_extensions + csv_extensions
         
         try:
@@ -3228,13 +3530,13 @@ class ModernExcelCompilerApp(QMainWindow):
                     item = QListWidgetItem(file)
                     self.list_files.addItem(item)
                     self.preview_combo.addItem(file)
+
+            # Réinitialiser le checkbox à décoché
+            self.checkbox_all_files.setChecked(False) 
             
             logging.info(f"Fichiers chargés: {len(self.files)} fichiers trouvés")
-            
-            # Mettre à jour le compteur
             self.update_selection_count()
             
-            # Précharger la prévisualisation du premier fichier si disponible
             if self.files:
                 self.refresh_preview()
                 
@@ -3365,12 +3667,16 @@ class ModernExcelCompilerApp(QMainWindow):
             file_path = os.path.join(self.directory, file_name)
             
             try:
-                if file_name.lower().endswith(('.xlsx', '.xls')):
+                if file_name.lower().endswith(('.xlsx', '.xls', '.xlsm', '.xltx', '.xltm')):
                     is_compatible, reason = FileVerification.verify_excel_file(
                         file_path, header_start_row, header_rows
                     )
                 elif file_name.lower().endswith('.csv'):
                     is_compatible, reason = FileVerification.verify_csv_file(
+                        file_path, header_start_row, header_rows
+                    )
+                elif file_name.lower().endswith(('.tsv', '.txt')):
+                    is_compatible, reason = FileVerification.verify_text_file(
                         file_path, header_start_row, header_rows
                     )
                 else:
@@ -3486,9 +3792,7 @@ class ModernExcelCompilerApp(QMainWindow):
                 "Aucun paramètre sauvegardé trouvé."
             )
 
-    # =====================================================
-    # PARTIE 10: MÉTHODES FINALES
-    # =====================================================
+    # MÉTHODES FINALES
     
     def get_sort_column_index(self):
         """
@@ -3652,7 +3956,7 @@ class ModernExcelCompilerApp(QMainWindow):
         Args:
             successful_files: Liste des fichiers compilés avec succès
             failed_files: Liste des fichiers échoués
-            output_path: Chemin du fichier de sortie
+            output_path: Chemin du fichier de sorti
         """
         dialog = CompilationReportDialog(self, successful_files, failed_files, output_path)
         dialog.exec()
@@ -3765,8 +4069,8 @@ def main():
         app.setOrganizationDomain("zimkada@gmail.com")
         
         # Définir l'icône de l'application si disponible
-        if os.path.exists("icon.jpg"):
-            app.setWindowIcon(QIcon("icon.jpg"))
+        if os.path.exists("icon.ico"):
+            app.setWindowIcon(QIcon("icon.ico"))
         
         # Style de l'application
         app.setStyle('Fusion')
