@@ -1,0 +1,3 @@
+"""
+Module de compilation Excel
+"""
