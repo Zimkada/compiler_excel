@@ -1,0 +1,23 @@
+{
+    "auto_save_enabled": true,
+    "auto_save_interval": 300,
+    "backup_enabled": true,
+    "max_backup_files": 10,
+    "max_memory_usage": 536870912,
+    "max_threads": 4,
+    "chunk_size": 10000,
+    "security_level": "high",
+    "validate_file_integrity": true,
+    "max_file_size": 104857600,
+    "language": "fr",
+    "theme": "default",
+    "show_preview": true,
+    "enable_validation": true,
+    "health_checks_enabled": true,
+    "logging_level": "INFO",
+    "metrics_retention_days": 7,
+    "auto_recovery_enabled": true,
+    "crash_reporting": true,
+    "recovery_timeout": 30,
+    "test_key": "test_value"
+}
