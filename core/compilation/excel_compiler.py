@@ -227,14 +227,6 @@ class ExcelCompiler:
                     if self.options.filename_option != FilenameOption.NONE:
                         global_headers = self._add_filename_header(global_headers)
 
-                # Vérifier compatibilité des en-têtes
-                if not self._are_headers_compatible(global_headers, file_headers):
-                    result.warnings.append(
-                        f"{Path(file_path).name}: En-têtes incompatibles, "
-                        f"ajustement automatique"
-                    )
-                    file_data = self._adjust_columns(file_data, file_headers, global_headers)
-
                 # Ajouter le nom du fichier si demandé
                 if self.options.filename_option != FilenameOption.NONE:
                     file_data = self._add_filename_column(
@@ -242,6 +234,16 @@ class ExcelCompiler:
                         file_path,
                         self.options.filename_option
                     )
+                    # Ajouter aussi la colonne aux en-têtes du fichier pour la comparaison
+                    file_headers = self._add_filename_header(file_headers)
+
+                # Vérifier compatibilité des en-têtes
+                if not self._are_headers_compatible(global_headers, file_headers):
+                    result.warnings.append(
+                        f"{Path(file_path).name}: En-têtes incompatibles, "
+                        f"ajustement automatique"
+                    )
+                    file_data = self._adjust_columns(file_data, file_headers, global_headers)
 
                 # Ajouter les en-têtes répétés si demandé
                 if self.options.repeat_headers and i > 0:
