@@ -1,7 +1,9 @@
-pandas==2.2.0
+pandas>=2.2.0 --only-binary=all
 openpyxl==3.1.2
 PyQt6==6.6.1
 PyQt6-Qt6==6.6.1
 PyQt6-sip==13.6.0
 pyinstaller==6.11.1
 pyarrow==19.0.1
+psutil>=5.9.0
+chardet>=5.0.0
