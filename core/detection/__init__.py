@@ -7,6 +7,7 @@ from .border_detector import BorderDetector
 from .density_detector import DensityDetector
 from .pattern_detector import PatternDetector
 from .hybrid_detector import HybridDetector
+from .reference_detector import ReferenceDetector
 
 __all__ = [
     'BaseDetector',
@@ -14,5 +15,6 @@ __all__ = [
     'BorderDetector',
     'DensityDetector',
     'PatternDetector',
-    'HybridDetector'
+    'HybridDetector',
+    'ReferenceDetector'
 ]

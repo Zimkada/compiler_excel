@@ -58,6 +58,11 @@ class CompilationOptions:
     enable_cross_validation: bool = True
     detection_confidence_threshold: float = 0.65
 
+    # Options mode référence (v3.2.1 - nouveau)
+    use_reference_mode: bool = False
+    reference_header_row: int = 1
+    reference_header_lines: int = 1
+
     # Options manuelles (fallback si détection échoue)
     manual_header_start_row: int = 1
     manual_header_rows: int = 1
@@ -82,6 +87,9 @@ class CompilationOptions:
             'auto_detect_structure': self.auto_detect_structure,
             'enable_cross_validation': self.enable_cross_validation,
             'detection_confidence_threshold': self.detection_confidence_threshold,
+            'use_reference_mode': self.use_reference_mode,
+            'reference_header_row': self.reference_header_row,
+            'reference_header_lines': self.reference_header_lines,
             'manual_header_start_row': self.manual_header_start_row,
             'manual_header_rows': self.manual_header_rows,
             'enable_chunked_processing': self.enable_chunked_processing,

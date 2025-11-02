@@ -19,7 +19,7 @@ from .compilation_models import (
     DateFormat,
     OutputFormat
 )
-from ..detection import HybridDetector, DetectionResult
+from ..detection import HybridDetector, ReferenceDetector, DetectionResult
 from utils import logger
 
 
@@ -49,13 +49,21 @@ class ExcelCompiler:
         self.options = options or CompilationOptions()
         self.logger = logger
 
-        # Détecteur de structure (si détection auto activée)
+        # Détecteur de structure selon le mode choisi
         self.detector: Optional[HybridDetector] = None
-        if self.options.auto_detect_structure:
+        self.reference_detector: Optional[ReferenceDetector] = None
+
+        if self.options.use_reference_mode:
+            # Mode référence: pas de détecteur pour l'instant
+            # On le créera dans _detect_structures avec le premier fichier
+            self.logger.info("Mode référence activé")
+        elif self.options.auto_detect_structure:
+            # Mode automatique hybride
             self.detector = HybridDetector(
                 confidence_threshold=self.options.detection_confidence_threshold,
                 enable_cross_validation=self.options.enable_cross_validation
             )
+            self.logger.info("Mode détection automatique hybride activé")
 
     def compile_files(self, file_paths: List[str],
                      output_file: str,
@@ -139,6 +147,12 @@ class ExcelCompiler:
         """
         detection_results = {}
 
+        # MODE 1: Fichier de référence
+        if self.options.use_reference_mode:
+            self.logger.info(f"Mode référence: détection basée sur le fichier de référence")
+            return self._detect_with_reference(file_paths, result)
+
+        # MODE 2: Détection automatique hybride
         if not self.options.auto_detect_structure or self.detector is None:
             self.logger.info("Détection automatique désactivée, utilisation paramètres manuels")
             return detection_results
@@ -675,3 +689,68 @@ class ExcelCompiler:
 
         result.output_file = output_file
         result.success = True
+
+    def _detect_with_reference(self, file_paths: List[str],
+                                result: CompilationResult) -> Dict[str, DetectionResult]:
+        """
+        Détecte la structure en utilisant un fichier de référence
+
+        Args:
+            file_paths: Liste des fichiers
+            result: Résultat de compilation (pour warnings)
+
+        Returns:
+            Dict {file_path: DetectionResult}
+        """
+        detection_results = {}
+
+        if not file_paths:
+            return detection_results
+
+        # Le premier fichier est la référence
+        reference_file = file_paths[0]
+        self.logger.info(f"Fichier de référence: {Path(reference_file).name}")
+
+        try:
+            # Créer le détecteur de référence
+            self.reference_detector = ReferenceDetector(
+                reference_file=reference_file,
+                reference_header_row=self.options.reference_header_row,
+                reference_header_lines=self.options.reference_header_lines,
+                similarity_threshold=0.95,  # 95% pour acceptation automatique
+                min_similarity=0.70,  # 70% minimum pour validation
+                max_search_rows=50  # Chercher jusqu'à 50 lignes
+            )
+
+            # Détection sur tous les fichiers (y compris la référence)
+            for file_path in file_paths:
+                try:
+                    detection = self.reference_detector.detect(file_path)
+                    detection_results[file_path] = detection
+
+                    # Log si avertissement
+                    if detection.warning:
+                        self.logger.warning(f"{Path(file_path).name}: {detection.warning}")
+                        result.warnings.append(f"{Path(file_path).name}: {detection.warning}")
+
+                    # Log info détection
+                    if detection.debug_info and 'similarity_score' in detection.debug_info:
+                        similarity = detection.debug_info['similarity_score']
+                        self.logger.info(
+                            f"{Path(file_path).name}: ligne {detection.header_start_row}, "
+                            f"similarité {similarity:.0%}"
+                        )
+
+                except Exception as e:
+                    self.logger.error(f"Erreur détection {Path(file_path).name}: {e}")
+                    result.warnings.append(f"Erreur détection {Path(file_path).name}: {e}")
+
+            # Marquer qu'on a utilisé la détection auto (mode référence)
+            result.auto_detection_used = True
+            result.detection_success_rate = len(detection_results) / len(file_paths) if file_paths else 0
+
+        except Exception as e:
+            self.logger.error(f"Erreur création détecteur référence: {e}", exc_info=True)
+            result.warnings.append(f"Erreur mode référence: {e}")
+
+        return detection_results
