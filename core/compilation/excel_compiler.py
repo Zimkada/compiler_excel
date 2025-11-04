@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 import pandas as pd
 import numpy as np
+import openpyxl
 
 from .compilation_models import (
     CompilationOptions,
@@ -20,6 +21,7 @@ from .compilation_models import (
     OutputFormat
 )
 from ..detection import HybridDetector, ReferenceDetector, DetectionResult
+from .excel_formatter import ExcelFormatter
 from utils import logger
 
 
@@ -662,7 +664,7 @@ class ExcelCompiler:
                           output_file: str, output_format: OutputFormat,
                           result: CompilationResult):
         """
-        Écrit le fichier de sortie
+        Écrit le fichier de sortie avec formatage professionnel
 
         Args:
             data: Données à écrire
@@ -673,18 +675,41 @@ class ExcelCompiler:
         """
         self.logger.info(f"Écriture fichier de sortie: {output_file}")
 
-        # Combiner en-têtes et données
-        all_data = headers + data
-
-        # Convertir en DataFrame
-        df = pd.DataFrame(all_data)
-
-        # Écrire selon le format
         if output_format == OutputFormat.XLSX:
-            df.to_excel(output_file, index=False, header=False)
+            # Utiliser openpyxl pour un formatage professionnel
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Compilation"
+
+            # Écrire les en-têtes avec style
+            current_row = ExcelFormatter.write_headers(ws, headers, start_row=1)
+
+            # Écrire les données avec bordures
+            date_format_str = self.options.date_format.value.upper()
+            ExcelFormatter.write_data(ws, data, start_row=current_row,
+                                     date_format=date_format_str)
+
+            # Appliquer les options de formatage
+            ExcelFormatter.adjust_column_widths(ws, min_width=10, max_width=50)
+
+            # Figer les en-têtes (ligne après les en-têtes)
+            freeze_row = len(headers) + 1
+            ExcelFormatter.freeze_header(ws, freeze_row)
+
+            # Sauvegarder
+            wb.save(output_file)
+            self.logger.info("Formatage Excel appliqué avec succès")
+
         elif output_format == OutputFormat.CSV:
+            # Pour CSV, utiliser pandas (pas de formatage)
+            all_data = headers + data
+            df = pd.DataFrame(all_data)
             df.to_csv(output_file, index=False, header=False, encoding='utf-8-sig')
+
         elif output_format == OutputFormat.TSV:
+            # Pour TSV, utiliser pandas (pas de formatage)
+            all_data = headers + data
+            df = pd.DataFrame(all_data)
             df.to_csv(output_file, index=False, header=False, sep='\t', encoding='utf-8-sig')
 
         result.output_file = output_file

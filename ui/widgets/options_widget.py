@@ -31,10 +31,10 @@ class OptionsWidget(QWidget):
         """Configure l'interface du widget"""
         layout = QVBoxLayout(self)
 
-        # Group box principal
-        group = QGroupBox("⚙️ Options de compilation")
-        group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
-        group_layout = QVBoxLayout()
+        # === SECTION 1: MODE DE DÉTECTION ===
+        detection_group = QGroupBox("📋 Mode de détection")
+        detection_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        detection_layout = QVBoxLayout()
 
         # === MODE 1: FICHIER DE RÉFÉRENCE (Semi-automatique) ===
         self.checkbox_reference_mode = QCheckBox("✨ Utiliser fichier de référence (recommandé)")
@@ -42,7 +42,7 @@ class OptionsWidget(QWidget):
         self.checkbox_reference_mode.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         self.checkbox_reference_mode.setStyleSheet(f"color: {EXCEL_GREEN};")
         self.checkbox_reference_mode.toggled.connect(self.on_mode_changed)
-        group_layout.addWidget(self.checkbox_reference_mode)
+        detection_layout.addWidget(self.checkbox_reference_mode)
 
         # Label explicatif mode référence
         help_ref_label = QLabel(
@@ -51,7 +51,7 @@ class OptionsWidget(QWidget):
         )
         help_ref_label.setStyleSheet("color: #666; font-size: 8pt; font-style: italic; padding-left: 25px;")
         help_ref_label.setWordWrap(True)
-        group_layout.addWidget(help_ref_label)
+        detection_layout.addWidget(help_ref_label)
 
         # Options mode référence
         self.reference_group = QGroupBox("Configuration du fichier de référence")
@@ -83,20 +83,20 @@ class OptionsWidget(QWidget):
         ref_layout.addWidget(ref_info_label, 2, 0, 1, 2)
 
         self.reference_group.setLayout(ref_layout)
-        group_layout.addWidget(self.reference_group)
+        detection_layout.addWidget(self.reference_group)
 
         # === MODE 2: CONFIGURATION MANUELLE COMPLÈTE ===
         self.checkbox_manual_mode = QCheckBox("⚙️ Configuration manuelle pour tous les fichiers")
         self.checkbox_manual_mode.setChecked(False)
         self.checkbox_manual_mode.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         self.checkbox_manual_mode.toggled.connect(self.on_mode_changed)
-        group_layout.addWidget(self.checkbox_manual_mode)
+        detection_layout.addWidget(self.checkbox_manual_mode)
 
         # Label explicatif mode manuel
         help_manual_label = QLabel("Tous les fichiers utiliseront exactement la même configuration")
         help_manual_label.setStyleSheet("color: #666; font-size: 8pt; font-style: italic; padding-left: 25px;")
         help_manual_label.setWordWrap(True)
-        group_layout.addWidget(help_manual_label)
+        detection_layout.addWidget(help_manual_label)
 
         # Options mode manuel
         self.manual_group = QGroupBox("Configuration manuelle")
@@ -129,16 +129,21 @@ class OptionsWidget(QWidget):
         manual_layout.addWidget(warning_label, 2, 0, 1, 2)
 
         self.manual_group.setLayout(manual_layout)
-        group_layout.addWidget(self.manual_group)
+        detection_layout.addWidget(self.manual_group)
 
-        # === OPTIONS COMMUNES ===
-        common_layout = QGridLayout()
+        detection_group.setLayout(detection_layout)
+        layout.addWidget(detection_group)
 
-        # Nom de fichier
-        label_filename_option = QLabel("📋 Nom de fichier:")
+        # === SECTION 2: OPTIONS DE COMPILATION ===
+        compilation_group = QGroupBox("⚙️ Options de compilation")
+        compilation_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        compilation_layout = QGridLayout()
+
+        # Colonne nom de fichier source
+        label_filename_option = QLabel("📋 Colonne nom de fichier source:")
         self.combo_filename_option = QComboBox()
-        self.combo_filename_option.addItem("Aucun", FilenameOption.NONE)
-        self.combo_filename_option.addItem("Avec extension", FilenameOption.WITH_EXTENSION)
+        self.combo_filename_option.addItem("Ne pas ajouter", FilenameOption.NONE)
+        self.combo_filename_option.addItem("Avec extension (.xlsx)", FilenameOption.WITH_EXTENSION)
         self.combo_filename_option.addItem("Sans extension", FilenameOption.WITHOUT_EXTENSION)
         self.combo_filename_option.setCurrentIndex(2)  # Sans extension par défaut
         self.combo_filename_option.currentIndexChanged.connect(self.options_changed.emit)
@@ -167,19 +172,61 @@ class OptionsWidget(QWidget):
         self.checkbox_remove_empty.setChecked(True)
         self.checkbox_remove_empty.toggled.connect(self.options_changed.emit)
 
-        common_layout.addWidget(label_filename_option, 0, 0)
-        common_layout.addWidget(self.combo_filename_option, 0, 1)
-        common_layout.addWidget(label_output, 1, 0)
-        common_layout.addWidget(self.lineedit_output, 1, 1)
-        common_layout.addWidget(label_format, 2, 0)
-        common_layout.addWidget(self.combo_format, 2, 1)
-        common_layout.addWidget(self.checkbox_repeat_headers, 3, 0, 1, 2)
-        common_layout.addWidget(self.checkbox_remove_empty, 4, 0, 1, 2)
+        compilation_layout.addWidget(label_filename_option, 0, 0)
+        compilation_layout.addWidget(self.combo_filename_option, 0, 1)
+        compilation_layout.addWidget(label_output, 1, 0)
+        compilation_layout.addWidget(self.lineedit_output, 1, 1)
+        compilation_layout.addWidget(label_format, 2, 0)
+        compilation_layout.addWidget(self.combo_format, 2, 1)
+        compilation_layout.addWidget(self.checkbox_repeat_headers, 3, 0, 1, 2)
+        compilation_layout.addWidget(self.checkbox_remove_empty, 4, 0, 1, 2)
 
-        group_layout.addLayout(common_layout)
+        compilation_group.setLayout(compilation_layout)
+        layout.addWidget(compilation_group)
 
-        group.setLayout(group_layout)
-        layout.addWidget(group)
+        # === SECTION 3: OPTIONS AVANCÉES ===
+        advanced_group = QGroupBox("🔧 Options avancées")
+        advanced_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        advanced_layout = QGridLayout()
+
+        # Supprimer doublons
+        self.checkbox_remove_duplicates = QCheckBox("Supprimer les doublons")
+        self.checkbox_remove_duplicates.setChecked(False)
+        self.checkbox_remove_duplicates.setToolTip("Élimine les lignes identiques (compare toutes les colonnes)")
+        self.checkbox_remove_duplicates.toggled.connect(self.options_changed.emit)
+
+        # Trier les données
+        self.checkbox_sort_data = QCheckBox("Trier les données")
+        self.checkbox_sort_data.setChecked(False)
+        self.checkbox_sort_data.setToolTip("Trie les données par la colonne spécifiée")
+        self.checkbox_sort_data.toggled.connect(self.on_sort_toggled)
+
+        label_sort_column = QLabel("Colonne de tri:")
+        self.lineedit_sort_column = QLineEdit("A")
+        self.lineedit_sort_column.setPlaceholderText("A, B, C ou 1, 2, 3")
+        self.lineedit_sort_column.setMaximumWidth(100)
+        self.lineedit_sort_column.setEnabled(False)
+        self.lineedit_sort_column.textChanged.connect(self.options_changed.emit)
+
+        # Format de date
+        label_date_format = QLabel("📅 Format de date:")
+        self.combo_date_format = QComboBox()
+        self.combo_date_format.addItem("Français (JJ/MM/AAAA)", "FRENCH")
+        self.combo_date_format.addItem("Standard (AAAA-MM-JJ)", "STANDARD")
+        self.combo_date_format.addItem("Américain (MM/JJ/AAAA)", "US")
+        self.combo_date_format.addItem("Date et heure (JJ/MM/AAAA HH:MM:SS)", "DATETIME_FRENCH")
+        self.combo_date_format.setCurrentIndex(0)  # Français par défaut
+        self.combo_date_format.currentIndexChanged.connect(self.options_changed.emit)
+
+        advanced_layout.addWidget(self.checkbox_remove_duplicates, 0, 0, 1, 2)
+        advanced_layout.addWidget(self.checkbox_sort_data, 1, 0, 1, 2)
+        advanced_layout.addWidget(label_sort_column, 2, 0)
+        advanced_layout.addWidget(self.lineedit_sort_column, 2, 1)
+        advanced_layout.addWidget(label_date_format, 3, 0)
+        advanced_layout.addWidget(self.combo_date_format, 3, 1)
+
+        advanced_group.setLayout(advanced_layout)
+        layout.addWidget(advanced_group)
 
     def on_mode_changed(self, checked):
         """Gère le changement de mode (référence/manuel)"""
@@ -209,6 +256,11 @@ class OptionsWidget(QWidget):
 
         self.options_changed.emit()
 
+    def on_sort_toggled(self, checked):
+        """Active/désactive le champ de colonne de tri"""
+        self.lineedit_sort_column.setEnabled(checked)
+        self.options_changed.emit()
+
     def get_compilation_options(self) -> CompilationOptions:
         """
         Construit les options de compilation selon le mode choisi
@@ -216,8 +268,30 @@ class OptionsWidget(QWidget):
         Returns:
             CompilationOptions configuré
         """
-        # Récupérer le filename_option
+        # Récupérer les options communes
         filename_option = self.combo_filename_option.currentData()
+
+        # Convertir la colonne de tri (A, B, C) en index (0, 1, 2)
+        sort_column_index = 0
+        if self.checkbox_sort_data.isChecked():
+            sort_column_text = self.lineedit_sort_column.text().strip().upper()
+            if sort_column_text.isalpha():
+                # Convertir A->0, B->1, etc.
+                sort_column_index = ord(sort_column_text[0]) - ord('A')
+            elif sort_column_text.isdigit():
+                # Convertir 1->0, 2->1, etc.
+                sort_column_index = int(sort_column_text) - 1
+
+        # Récupérer le format de date
+        date_format_str = self.combo_date_format.currentData()
+        from core.compilation.compilation_models import DateFormat
+        date_format_map = {
+            "FRENCH": DateFormat.FRENCH,
+            "STANDARD": DateFormat.ISO,
+            "US": DateFormat.AMERICAN,
+            "DATETIME_FRENCH": DateFormat.FRENCH  # On garde FRENCH pour le moment
+        }
+        date_format = date_format_map.get(date_format_str, DateFormat.FRENCH)
 
         if self.checkbox_reference_mode.isChecked():
             # MODE 1: FICHIER DE RÉFÉRENCE (semi-automatique)
@@ -228,7 +302,12 @@ class OptionsWidget(QWidget):
                 reference_header_lines=self.spinbox_ref_header_lines.value(),
                 filename_option=filename_option,
                 repeat_headers=self.checkbox_repeat_headers.isChecked(),
-                remove_empty_rows=self.checkbox_remove_empty.isChecked()
+                remove_empty_rows=self.checkbox_remove_empty.isChecked(),
+                # Options avancées
+                remove_duplicates=self.checkbox_remove_duplicates.isChecked(),
+                sort_data=self.checkbox_sort_data.isChecked(),
+                sort_column=sort_column_index,
+                date_format=date_format
             )
         else:
             # MODE 2: CONFIGURATION MANUELLE COMPLÈTE
@@ -238,7 +317,12 @@ class OptionsWidget(QWidget):
                 manual_header_rows=self.spinbox_header_rows.value(),
                 filename_option=filename_option,
                 repeat_headers=self.checkbox_repeat_headers.isChecked(),
-                remove_empty_rows=self.checkbox_remove_empty.isChecked()
+                remove_empty_rows=self.checkbox_remove_empty.isChecked(),
+                # Options avancées
+                remove_duplicates=self.checkbox_remove_duplicates.isChecked(),
+                sort_data=self.checkbox_sort_data.isChecked(),
+                sort_column=sort_column_index,
+                date_format=date_format
             )
 
     def get_output_file(self) -> str:
