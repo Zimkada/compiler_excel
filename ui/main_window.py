@@ -38,6 +38,16 @@ class MainWindow(QMainWindow):
         self.setup_ui()
         self.connect_signals()
 
+    @staticmethod
+    def _apply_soft_shadow(widget, blur=24, dy=4, alpha=28):
+        """Ombre portée douce pour donner du relief aux cartes (effet premium)."""
+        shadow = QGraphicsDropShadowEffect(widget)
+        shadow.setBlurRadius(blur)
+        shadow.setXOffset(0)
+        shadow.setYOffset(dy)
+        shadow.setColor(QColor(15, 23, 42, alpha))  # slate translucide
+        widget.setGraphicsEffect(shadow)
+
     def setup_ui(self):
         """Configure l'interface utilisateur (header héro + sidebar + pages)."""
         self.setWindowTitle("ExcelCompiler — Compilateur Excel Intelligent")
@@ -161,7 +171,25 @@ class MainWindow(QMainWindow):
 
         # Activer le premier item
         self.nav_group.button(0).setChecked(True)
+        self._apply_soft_shadow(sidebar, blur=28, dy=6, alpha=22)
         return sidebar
+
+    def _page_header(self, title: str, description: str) -> QWidget:
+        """En-tête de page : titre fort + description discrète."""
+        header = QWidget()
+        col = QVBoxLayout(header)
+        col.setContentsMargins(2, 0, 0, 0)
+        col.setSpacing(2)
+        t = QLabel(title)
+        t.setStyleSheet(
+            f"color: {T.TEXT_PRIMARY}; font-size: 16pt; font-weight: 800;"
+        )
+        d = QLabel(description)
+        d.setStyleSheet(f"color: {T.TEXT_SECONDARY}; font-size: 10pt;")
+        d.setWordWrap(True)
+        col.addWidget(t)
+        col.addWidget(d)
+        return header
 
     def _make_nav_button(self, icon: str, label: str) -> QPushButton:
         """Bouton de navigation latérale, checkable, au style premium."""
@@ -218,6 +246,11 @@ class MainWindow(QMainWindow):
         layout.setSpacing(T.SPACE_MD)
         layout.setContentsMargins(0, 0, T.SPACE_SM, 0)
 
+        layout.addWidget(self._page_header(
+            "Compiler des fichiers",
+            "Sélectionnez vos fichiers, choisissez le mode de détection, puis lancez la compilation."
+        ))
+
         self.file_selector = FileSelectorWidget()
         layout.addWidget(self.file_selector)
 
@@ -263,9 +296,16 @@ class MainWindow(QMainWindow):
         return tab
 
     def create_results_tab(self) -> QWidget:
-        """Crée l'onglet des résultats"""
+        """Page des résultats de compilation."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(T.SPACE_MD)
+
+        layout.addWidget(self._page_header(
+            "Résultats",
+            "Statistiques et détails de la dernière compilation."
+        ))
 
         self.results_widget = ResultsWidget()
         layout.addWidget(self.results_widget)
@@ -273,9 +313,16 @@ class MainWindow(QMainWindow):
         return tab
 
     def create_about_tab(self) -> QWidget:
-        """Crée l'onglet À propos"""
+        """Page À propos."""
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(T.SPACE_MD)
+
+        layout.addWidget(self._page_header(
+            "À propos",
+            "ExcelCompiler — compilateur Excel intelligent."
+        ))
 
         about_text = QTextBrowser()
         about_text.setOpenExternalLinks(True)
