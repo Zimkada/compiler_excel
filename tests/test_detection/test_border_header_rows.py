@@ -96,3 +96,46 @@ class TestBorderHeaderRows:
         r = BorderDetector().detect(p)
         assert r.header_rows == 1
         assert r.data_start_row == 2
+
+    def test_single_bordered_row_does_not_crash(self, tmp_path):
+        """Tableau réduit à une seule ligne bordée (header_start == data_end)."""
+        p = _make_bordered_xlsx(tmp_path / "t.xlsx", [["Nom", "Age"]])
+        r = BorderDetector().detect(p)
+        assert r is not None
+        assert r.header_rows >= 1
+
+    def test_date_data_keeps_single_header(self, tmp_path):
+        """Des données de type date ne doivent pas être prises pour des en-têtes."""
+        from datetime import datetime
+        p = _make_bordered_xlsx(tmp_path / "t.xlsx", [
+            ["Event", "Quand"],
+            ["A", datetime(2025, 3, 8)],
+            ["B", datetime(2025, 4, 1)],
+        ])
+        r = BorderDetector().detect(p)
+        assert r.header_rows == 1
+
+
+class TestRowNumericCount:
+    """Comportement de _row_numeric_count (utilisé pour séparer en-tête/données)."""
+
+    def _df(self, *rows):
+        import pandas as pd
+        return pd.DataFrame(list(rows))
+
+    def test_out_of_bounds_returns_zero(self):
+        det = BorderDetector()
+        assert det._row_numeric_count(self._df(["a", 1]), 99) == 0
+
+    def test_numeric_string_counts(self):
+        det = BorderDetector()
+        assert det._row_numeric_count(self._df(["12", "x"]), 0) == 1
+
+    def test_text_only_counts_zero(self):
+        det = BorderDetector()
+        assert det._row_numeric_count(self._df(["Nom", "Ville"]), 0) == 0
+
+    def test_mixed_row(self):
+        det = BorderDetector()
+        # 2 numériques (1, "42"), 1 texte
+        assert det._row_numeric_count(self._df([1, "Alice", "42"]), 0) == 2

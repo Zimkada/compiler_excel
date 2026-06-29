@@ -204,9 +204,9 @@ class BorderDetector(BaseDetector):
         Les bordures localisent le tableau (première ligne bordée = début).
         Mais dans un tableau entièrement quadrillé, en-tête et données ont les
         mêmes bordures : on ne peut pas les distinguer par les bordures seules.
-        On départage donc par le CONTENU (is_likely_header_row : une ligne
-        d'en-tête est majoritairement textuelle), ce qui évite de gonfler le
-        nombre de lignes d'en-tête avec des lignes de données.
+        On départage donc par le CONTENU : les lignes d'en-tête sont textuelles,
+        les lignes de données contiennent des valeurs numériques. Cela évite de
+        gonfler le nombre de lignes d'en-tête avec des lignes de données.
 
         Args:
             border_analysis: Résultat de _analyze_borders (clés = lignes base 1)
@@ -264,22 +264,24 @@ class BorderDetector(BaseDetector):
         return (header_start, header_end, data_end)
 
     def _row_numeric_count(self, df, row_idx: int) -> int:
-        """Nombre de cellules numériques dans une ligne (base 0)."""
+        """
+        Nombre de cellules numériquement interprétables dans une ligne (base 0).
+
+        Sert à distinguer une ligne d'en-tête (libellés textuels) d'une ligne de
+        données (qui contient des valeurs : nombres, dates, booléens...). Toute
+        valeur convertible en nombre compte ; les libellés textuels ne comptent
+        pas. Une ligne hors limites renvoie 0.
+        """
         if row_idx >= len(df):
             return 0
         count = 0
         for val in df.iloc[row_idx]:
             if pd.notna(val):
-                if isinstance(val, bool):
-                    continue
-                if isinstance(val, (int, float)):
+                try:
+                    float(val)
                     count += 1
-                else:
-                    try:
-                        float(val)
-                        count += 1
-                    except (ValueError, TypeError):
-                        pass
+                except (ValueError, TypeError):
+                    pass
         return count
 
     def _calculate_confidence(self, border_analysis: Dict[int, Dict],
