@@ -30,6 +30,7 @@ class CompilationWorker(QThread):
     progress_update = pyqtSignal(int, str)  # (pourcentage, message)
     compilation_finished = pyqtSignal(object)  # CompilationResult
     error_occurred = pyqtSignal(str)  # Message d'erreur
+    compilation_cancelled = pyqtSignal()  # Annulation volontaire (pas une erreur)
 
     def __init__(self,
                  file_paths: List[str],
@@ -63,30 +64,27 @@ class CompilationWorker(QThread):
             # Créer le compilateur
             compiler = ExcelCompiler(self.options)
 
-            # Émettre progression: détection
-            if self.options.auto_detect_structure:
-                self.progress_update.emit(10, f"Détection automatique de structure sur {len(self.file_paths)} fichiers...")
-
-            # Compiler les fichiers
+            # Compiler les fichiers en transmettant la progression réelle
+            # et la possibilité d'annuler. Les callbacks sont exécutés dans
+            # ce thread; émettre un signal Qt depuis ici est thread-safe.
             result = compiler.compile_files(
                 self.file_paths,
                 self.output_file,
-                self.output_format
+                self.output_format,
+                progress_callback=lambda pct, msg: self.progress_update.emit(pct, msg),
+                cancel_check=lambda: self._is_cancelled,
             )
 
-            # Vérifier si annulé pendant la compilation
-            if self._is_cancelled:
+            # La compilation s'est arrêtée proprement suite à une annulation:
+            # ce n'est pas une erreur, on utilise un signal dédié.
+            if result.cancelled or self._is_cancelled:
                 logger.info("Compilation annulée par l'utilisateur")
-                self.error_occurred.emit("Compilation annulée")
+                self.compilation_cancelled.emit()
                 return
-
-            # Émettre progression: finalisation
-            self.progress_update.emit(90, "Finalisation...")
 
             # Vérifier le résultat
             if result.success:
                 logger.info(f"Compilation réussie: {result.successful_files}/{result.total_files} fichiers")
-                self.progress_update.emit(100, "Compilation terminée avec succès!")
                 self.compilation_finished.emit(result)
             else:
                 error_msg = "Compilation échouée"

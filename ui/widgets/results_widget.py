@@ -120,7 +120,7 @@ class ResultsWidget(QWidget):
             <b>Statistiques:</b><br>
             • Fichiers traités: <b>{result.successful_files}/{result.total_files}</b><br>
             • Lignes compilées: <b>{result.total_rows}</b><br>
-            • Temps total: <b>{result.processing_time:.2f}s</b><br>
+            • Temps total: <b>{result.total_processing_time:.2f}s</b><br>
             • Fichier de sortie: <b>{Path(result.output_file).name}</b>
             """
 

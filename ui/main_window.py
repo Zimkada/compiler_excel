@@ -287,8 +287,8 @@ class MainWindow(QMainWindow):
             return
 
         # Vérifier le nom du fichier de sortie
-        output_file = self.options_widget.get_output_file()
-        if not output_file:
+        output_filename = self.options_widget.get_output_file()
+        if not output_filename:
             QMessageBox.warning(
                 self,
                 "Nom de fichier manquant",
@@ -296,11 +296,16 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Créer le chemin complet: même dossier que les fichiers sources
+        source_directory = Path(selected_files[0]).parent
+        output_file = str(source_directory / output_filename)
+
         # Récupérer les options
         options = self.options_widget.get_compilation_options()
         output_format = self.options_widget.get_output_format()
 
         logger.info(f"Démarrage compilation: {len(selected_files)} fichiers")
+        logger.info(f"Fichier de sortie: {output_file}")
 
         # Désactiver le bouton compiler
         self.button_compile.setEnabled(False)
@@ -320,6 +325,7 @@ class MainWindow(QMainWindow):
         self.compilation_worker.progress_update.connect(self.on_progress_update)
         self.compilation_worker.compilation_finished.connect(self.on_compilation_finished)
         self.compilation_worker.error_occurred.connect(self.on_compilation_error)
+        self.compilation_worker.compilation_cancelled.connect(self.on_compilation_cancelled)
 
         # Démarrer le worker
         self.compilation_worker.start()
@@ -331,30 +337,38 @@ class MainWindow(QMainWindow):
 
     def on_compilation_finished(self, result):
         """Appelé quand la compilation est terminée"""
-        logger.info("Compilation terminée avec succès")
+        try:
+            logger.info("Compilation terminée avec succès")
 
-        # Mettre à jour la barre de progression
-        self.progress_widget.finish_success(f"Compilation réussie! {result.total_rows} lignes")
+            # Mettre à jour la barre de progression
+            self.progress_widget.finish_success(f"Compilation réussie! {result.total_rows} lignes")
 
-        # Afficher les résultats
-        self.results_widget.display_result(result)
+            # Afficher les résultats
+            self.results_widget.display_result(result)
 
-        # Réactiver le bouton
-        self.button_compile.setEnabled(True)
+            # Réactiver le bouton
+            self.button_compile.setEnabled(True)
 
-        # Message de succès
-        QMessageBox.information(
-            self,
-            "Compilation réussie",
-            f"La compilation est terminée!\n\n"
-            f"• Fichiers: {result.successful_files}/{result.total_files}\n"
-            f"• Lignes: {result.total_rows}\n"
-            f"• Temps: {result.processing_time:.2f}s\n\n"
-            f"Fichier créé: {Path(result.output_file).name}"
-        )
+            # Message de succès
+            output_filename = Path(result.output_file).name if result.output_file else "compilation.xlsx"
+            QMessageBox.information(
+                self,
+                "Compilation réussie",
+                f"La compilation est terminée!\n\n"
+                f"• Fichiers: {result.successful_files}/{result.total_files}\n"
+                f"• Lignes: {result.total_rows}\n"
+                f"• Temps: {result.total_processing_time:.2f}s\n\n"
+                f"Fichier créé: {output_filename}"
+            )
 
-        # Nettoyer le worker
-        self.compilation_worker = None
+            # Nettoyer le worker
+            self.compilation_worker = None
+
+        except Exception as e:
+            logger.error(f"Erreur affichage résultats: {e}", exc_info=True)
+            # Au moins réactiver le bouton
+            self.button_compile.setEnabled(True)
+            self.compilation_worker = None
 
     def on_compilation_error(self, error_message: str):
         """Appelé en cas d'erreur"""
@@ -380,13 +394,24 @@ class MainWindow(QMainWindow):
         self.compilation_worker = None
 
     def cancel_compilation(self):
-        """Annule la compilation en cours"""
+        """Demande l'annulation de la compilation en cours.
+
+        On ne bloque PAS l'UI avec wait(): le worker détectera la demande
+        avant le prochain fichier et émettra compilation_cancelled, qui
+        finalisera l'état via on_compilation_cancelled().
+        """
         if self.compilation_worker and self.compilation_worker.isRunning():
             logger.info("Annulation compilation demandée")
+            self.status_label.setText("Annulation en cours...")
             self.compilation_worker.cancel()
-            self.compilation_worker.wait()  # Attendre fin du thread
-            self.button_compile.setEnabled(True)
-            self.status_label.setText("Compilation annulée")
+
+    def on_compilation_cancelled(self):
+        """Appelé quand le worker confirme l'annulation (pas une erreur)."""
+        logger.info("Compilation annulée (confirmée par le worker)")
+        self.progress_widget.finish_error("Compilation annulée")
+        self.button_compile.setEnabled(True)
+        self.status_label.setText("Compilation annulée")
+        self.compilation_worker = None
 
     def closeEvent(self, event):
         """Appelé à la fermeture de la fenêtre"""
@@ -400,6 +425,12 @@ class MainWindow(QMainWindow):
             )
 
             if reply == QMessageBox.StandardButton.Yes:
+                # Éviter que des slots se déclenchent sur une fenêtre en
+                # cours de fermeture: on coupe les signaux avant d'attendre.
+                try:
+                    self.compilation_worker.blockSignals(True)
+                except Exception:
+                    pass
                 self.compilation_worker.cancel()
                 self.compilation_worker.wait()
                 event.accept()
