@@ -15,6 +15,7 @@ import platform
 
 from core.compilation import CompilationResult
 from ui.styles import EXCEL_GREEN, SUCCESS, WARNING, ERROR, NEUTRAL_DARK
+from ui.styles import theme as T
 
 
 class ResultsWidget(QWidget):
@@ -39,7 +40,10 @@ class ResultsWidget(QWidget):
         # Statistiques (label résumé)
         self.label_stats = QLabel("")
         self.label_stats.setFont(QFont("Segoe UI", 9))
-        self.label_stats.setStyleSheet(f"color: {NEUTRAL_DARK}; padding: 10px; background-color: #f5f5f5; border-radius: 4px;")
+        self.label_stats.setStyleSheet(
+            f"color: {T.TEXT_PRIMARY}; padding: 12px; "
+            f"background-color: {T.BG_SUBTLE}; border-radius: {T.RADIUS_MD}px;"
+        )
         self.label_stats.setWordWrap(True)
         self.label_stats.setTextFormat(Qt.TextFormat.RichText)
         group_layout.addWidget(self.label_stats)
@@ -50,14 +54,11 @@ class ResultsWidget(QWidget):
         self.text_logs.setFont(QFont("Consolas", 8))
         self.text_logs.setMinimumHeight(150)
         self.text_logs.setMaximumHeight(200)
-        self.text_logs.setStyleSheet("""
-            QTextEdit {
-                border: 1px solid #d0d0d0;
-                border-radius: 4px;
-                background-color: #fafafa;
-                padding: 5px;
-            }
-        """)
+        self.text_logs.setStyleSheet(
+            f"QTextEdit {{ border: 1px solid {T.BORDER}; "
+            f"border-radius: {T.RADIUS_SM}px; background-color: {T.BG_SUBTLE}; "
+            f"padding: 8px; }}"
+        )
         group_layout.addWidget(self.text_logs)
 
         # Boutons d'action
@@ -66,22 +67,8 @@ class ResultsWidget(QWidget):
 
         self.button_open_folder = QPushButton("📁 Ouvrir le dossier")
         self.button_open_folder.setFont(QFont("Segoe UI", 9))
-        self.button_open_folder.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {EXCEL_GREEN};
-                color: white;
-                padding: 6px 12px;
-                border: none;
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: #1a5c37;
-            }}
-            QPushButton:disabled {{
-                background-color: #cccccc;
-                color: #666666;
-            }}
-        """)
+        self.button_open_folder.setProperty("variant", "primary")
+        self.button_open_folder.setCursor(Qt.CursorShape.PointingHandCursor)
         self.button_open_folder.setEnabled(False)
         self.button_open_folder.clicked.connect(self.open_output_folder)
 
@@ -200,9 +187,16 @@ class ResultsWidget(QWidget):
             self.text_logs.append(f"\n❌ Erreur ouverture dossier: {e}")
 
     def clear(self):
-        """Efface les résultats"""
-        self.label_stats.setText("<i>Aucune compilation effectuée</i>")
+        """Efface les résultats et affiche un état vide engageant."""
+        self.label_stats.setText(
+            "<div style='text-align:center; padding:18px;'>"
+            "<span style='font-size:30pt;'>📊</span><br>"
+            "<b style='font-size:12pt;'>Aucune compilation pour l'instant</b><br>"
+            "<span style='color:#5B636B;'>Lancez une compilation depuis l'onglet "
+            "« Compilation » : les statistiques et détails s'afficheront ici.</span>"
+            "</div>"
+        )
         self.text_logs.clear()
-        self.text_logs.setPlaceholderText("Les résultats de compilation apparaîtront ici...")
+        self.text_logs.setPlaceholderText("Les détails de compilation apparaîtront ici…")
         self.button_open_folder.setEnabled(False)
         self.last_output_file = None

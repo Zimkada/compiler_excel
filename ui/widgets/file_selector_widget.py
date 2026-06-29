@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import List
 
 from ui.styles import EXCEL_GREEN, NEUTRAL_DARK
+from ui.styles import theme as T
+
+SUPPORTED_EXTENSIONS = ['.xlsx', '.xls', '.xlsm', '.csv', '.tsv']
 
 
 class FileSelectorWidget(QWidget):
@@ -31,6 +34,7 @@ class FileSelectorWidget(QWidget):
         self.directory = ""
         self.all_files = []  # Tous les fichiers du dossier
         self.setup_ui()
+        self.setAcceptDrops(True)  # Activer le glisser-déposer de fichiers
 
     def setup_ui(self):
         """Configure l'interface du widget"""
@@ -55,6 +59,16 @@ class FileSelectorWidget(QWidget):
         dir_layout.addWidget(self.label_directory, 1)
         dir_layout.addWidget(self.button_choose_directory)
         group_layout.addLayout(dir_layout)
+
+        # Indice glisser-déposer
+        self.drop_hint = QLabel("⤓  Glissez-déposez vos fichiers Excel/CSV ici")
+        self.drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_hint.setStyleSheet(
+            f"color: {T.TEXT_MUTED}; font-size: {T.FONT_SIZE_SM}pt; "
+            f"border: 1.5px dashed {T.BORDER_STRONG}; border-radius: {T.RADIUS_MD}px; "
+            f"padding: 14px; margin-top: 4px;"
+        )
+        group_layout.addWidget(self.drop_hint)
 
         # Barre de sélection
         selection_bar = QHBoxLayout()
@@ -102,39 +116,85 @@ class FileSelectorWidget(QWidget):
         Args:
             directory: Chemin du dossier
         """
-        self.list_files.clear()
-        self.all_files = []
-
-        # Extensions supportées
-        extensions = ['.xlsx', '.xls', '.xlsm', '.csv', '.tsv']
-
-        # Chercher fichiers
         path = Path(directory)
-        for ext in extensions:
+        files = []
+        for ext in SUPPORTED_EXTENSIONS:
             for file_path in path.glob(f"*{ext}"):
                 if file_path.is_file():
-                    self.all_files.append(str(file_path))
+                    files.append(str(file_path))
 
-        # Trier par nom
-        self.all_files.sort(key=lambda x: Path(x).name.lower())
+        self._populate_list(files)
+        self.label_directory.setText(f"📁 {path.name}")
 
-        # Ajouter à la liste
+    def add_files(self, paths: List[str]):
+        """Ajoute des fichiers (ex. via glisser-déposer), en filtrant les
+        extensions supportées et en évitant les doublons."""
+        combined = list(self.all_files)
+        for p in paths:
+            fp = Path(p)
+            if fp.is_file() and fp.suffix.lower() in SUPPORTED_EXTENSIONS:
+                if str(fp) not in combined:
+                    combined.append(str(fp))
+        self._populate_list(combined)
+        if combined and not self.directory:
+            self.label_directory.setText(f"📁 {Path(combined[0]).parent.name}")
+
+    def _populate_list(self, files: List[str]):
+        """Remplit la liste avec les fichiers donnés (triés), met à jour les
+        compteurs, l'indice de glisser-déposer et la sélection par défaut."""
+        self.list_files.clear()
+        self.all_files = sorted(files, key=lambda x: Path(x).name.lower())
+
         for file_path in self.all_files:
             item = QListWidgetItem(Path(file_path).name)
-            item.setData(Qt.ItemDataRole.UserRole, file_path)  # Stocker chemin complet
+            item.setData(Qt.ItemDataRole.UserRole, file_path)
             self.list_files.addItem(item)
 
-        # Mettre à jour le label du dossier
-        short_path = str(Path(directory).name)
-        self.label_directory.setText(f"📁 {short_path}")
+        # Masquer l'indice de drop dès qu'il y a des fichiers
+        self.drop_hint.setVisible(not bool(self.all_files))
 
-        # Mettre à jour le compteur
         self.update_file_count()
 
-        # Auto-sélectionner tous les fichiers par défaut
         if self.all_files:
             self.list_files.selectAll()
             self.checkbox_select_all.setChecked(True)
+
+    # ── Glisser-déposer ──────────────────────────────────────────────────
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self.drop_hint.setStyleSheet(
+                f"color: {T.ACCENT}; font-size: {T.FONT_SIZE_SM}pt; font-weight: 700; "
+                f"border: 1.5px dashed {T.ACCENT}; border-radius: {T.RADIUS_MD}px; "
+                f"padding: 14px; margin-top: 4px; background-color: {T.ACCENT_SOFT};"
+            )
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._reset_drop_hint_style()
+
+    def dropEvent(self, event):
+        paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
+        self._reset_drop_hint_style()
+        if not paths:
+            return
+        # Si un dossier est déposé, charger son contenu ; sinon ajouter les fichiers
+        dirs = [p for p in paths if Path(p).is_dir()]
+        files = [p for p in paths if Path(p).is_file()]
+        if dirs:
+            self.directory = dirs[0]
+            self.load_files_from_directory(dirs[0])
+        if files:
+            self.add_files(files)
+        event.acceptProposedAction()
+
+    def _reset_drop_hint_style(self):
+        self.drop_hint.setStyleSheet(
+            f"color: {T.TEXT_MUTED}; font-size: {T.FONT_SIZE_SM}pt; "
+            f"border: 1.5px dashed {T.BORDER_STRONG}; border-radius: {T.RADIUS_MD}px; "
+            f"padding: 14px; margin-top: 4px;"
+        )
 
     def toggle_select_all(self, state):
         """Sélectionne/désélectionne tous les fichiers"""
