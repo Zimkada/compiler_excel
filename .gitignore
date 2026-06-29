@@ -1,0 +1,43 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Environnements virtuels
+venv/
+venv_*/
+.venv/
+env/
+ENV/
+
+# ===== Tests / couverture =====
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ===== Build PyInstaller =====
+build/
+dist/
+*.spec.bak
+*.manifest
+
+# ===== Logs et fichiers d'exécution =====
+logs/
+*.log
+nul
+
+# ===== Fichiers de test générés =====
+# Sorties de compilation produites par les scripts de test à la racine
+/test_compilation_manual.xlsx
+/test_compilation_output.xlsx
+/compilation.xlsx
+/compilation_gounarou_complet.xlsx
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+.DS_Store
