@@ -56,9 +56,16 @@ def main():
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
+    # Écran de démarrage (splash) pendant le chargement
+    from ui.splash import make_splash
+    splash = make_splash()
+    splash.show()
+    app.processEvents()
+
     # Créer et afficher la fenêtre principale
     window = MainWindow()
     window.show()
+    splash.finish(window)
 
     logger.info("Fenêtre principale affichée")
 

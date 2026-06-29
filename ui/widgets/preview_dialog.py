@@ -14,6 +14,7 @@ from PyQt6.QtGui import QFont
 
 from core.compilation import FilePreview
 from ui.styles import EXCEL_GREEN, OFFICE_ORANGE
+from ui.styles import theme as T
 
 
 class PreviewDialog(QDialog):
@@ -40,15 +41,15 @@ class PreviewDialog(QDialog):
         # Titre + résumé
         ok_count = sum(1 for p in self.previews if p.success)
         title = QLabel("👁 Aperçu de la détection")
-        title.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {EXCEL_GREEN};")
+        title.setFont(QFont(T.FONT_FAMILY, 14, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {T.TEXT_PRIMARY};")
         layout.addWidget(title)
 
         subtitle = QLabel(
             f"{ok_count}/{len(self.previews)} fichier(s) analysé(s). "
             "Vérifiez la ligne d'en-tête détectée avant de compiler."
         )
-        subtitle.setStyleSheet("color: #666; font-size: 9pt;")
+        subtitle.setStyleSheet(f"color: {T.TEXT_SECONDARY}; font-size: {T.FONT_SIZE_SM}pt;")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
 
@@ -80,8 +81,8 @@ class PreviewDialog(QDialog):
         card = QFrame()
         card.setFrameShape(QFrame.Shape.StyledPanel)
         card.setStyleSheet(
-            "QFrame { background-color: #fafafa; border: 1px solid #e0e0e0; "
-            "border-radius: 6px; }"
+            f"QFrame {{ background-color: {T.BG_SURFACE}; border: 1px solid {T.BORDER}; "
+            f"border-radius: {T.RADIUS_MD}px; }}"
         )
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(12, 10, 12, 10)
@@ -96,21 +97,22 @@ class PreviewDialog(QDialog):
 
         if not preview.success:
             badge = QLabel("⛔ Erreur")
-            badge.setStyleSheet("color: #c0392b; font-weight: bold;")
+            badge.setStyleSheet(f"color: {T.DANGER}; font-weight: bold;")
         elif preview.confidence >= 0.65 or preview.detection_method == "reference":
-            badge = QLabel("🟢")
+            badge = QLabel("● Détecté")
+            badge.setStyleSheet(f"color: {T.SUCCESS}; font-weight: 700;")
         elif preview.detection_method == "manual":
-            badge = QLabel("⚙️ manuel")
-            badge.setStyleSheet("color: #666;")
+            badge = QLabel("⚙ Manuel")
+            badge.setStyleSheet(f"color: {T.TEXT_SECONDARY};")
         else:
-            badge = QLabel("🟠 confiance faible")
-            badge.setStyleSheet(f"color: {OFFICE_ORANGE};")
+            badge = QLabel("▲ Confiance faible")
+            badge.setStyleSheet(f"color: {T.WARNING}; font-weight: 700;")
         header_row.addWidget(badge)
         card_layout.addLayout(header_row)
 
         if not preview.success:
             err = QLabel(preview.error or "Erreur inconnue")
-            err.setStyleSheet("color: #c0392b; font-size: 9pt;")
+            err.setStyleSheet(f"color: {T.DANGER}; font-size: {T.FONT_SIZE_SM}pt;")
             err.setWordWrap(True)
             card_layout.addWidget(err)
             return card
@@ -123,7 +125,7 @@ class PreviewDialog(QDialog):
         if preview.detection_method not in ("manual",):
             info_parts.append(f"confiance {preview.confidence:.0%}")
         info = QLabel(" · ".join(info_parts))
-        info.setStyleSheet("color: #444; font-size: 9pt;")
+        info.setStyleSheet(f"color: {T.TEXT_SECONDARY}; font-size: {T.FONT_SIZE_SM}pt;")
         card_layout.addWidget(info)
 
         # Ligne 3 : en-têtes détectés
@@ -132,14 +134,14 @@ class PreviewDialog(QDialog):
         )[:300]
         if headers_text:
             headers = QLabel(f"Colonnes : {headers_text}")
-            headers.setStyleSheet("color: #217346; font-size: 9pt;")
+            headers.setStyleSheet(f"color: {T.ACCENT}; font-size: {T.FONT_SIZE_SM}pt;")
             headers.setWordWrap(True)
             card_layout.addWidget(headers)
 
         # Avertissement éventuel
         if preview.warning:
-            warn = QLabel(f"⚠️ {preview.warning}")
-            warn.setStyleSheet(f"color: {OFFICE_ORANGE}; font-size: 8pt;")
+            warn = QLabel(f"⚠ {preview.warning}")
+            warn.setStyleSheet(f"color: {T.WARNING}; font-size: 8pt;")
             warn.setWordWrap(True)
             card_layout.addWidget(warn)
 
