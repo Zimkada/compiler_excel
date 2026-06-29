@@ -107,6 +107,28 @@ class TestPreviewDetection:
         result = ExcelCompiler(opts).compile_files([f], str(out), OutputFormat.XLSX)
         assert preview.data_row_count == result.total_rows
 
+    @pytest.mark.parametrize("remove_empty", [True, False])
+    def test_fidelity_with_empty_rows(self, tmp_path, remove_empty):
+        """L'aperçu doit rester fidèle même avec des lignes vides : il compte
+        les lignes exactement comme la compilation (filtrage inclus)."""
+        from core.compilation import OutputFormat
+        f = _make_bordered_xlsx(tmp_path / "gap.xlsx", [
+            ["Nom", "Age"],
+            ["Alice", 30],
+            [None, None],          # ligne vide intermédiaire
+            ["Bob", 25],
+            ["Carol", 40],
+        ])
+        opts = CompilationOptions(
+            auto_detect_structure=True, use_reference_mode=False,
+            filename_option=FilenameOption.NONE, remove_empty_rows=remove_empty,
+        )
+        preview = ExcelCompiler(opts).preview_detection([f])[0]
+        result = ExcelCompiler(opts).compile_files(
+            [f], str(tmp_path / "out.xlsx"), OutputFormat.XLSX
+        )
+        assert preview.data_row_count == result.total_rows
+
     def test_filename_property(self, tmp_path):
         f = _simple_file(tmp_path, "monfichier.xlsx")
         opts = CompilationOptions(auto_detect_structure=True, use_reference_mode=False)

@@ -278,10 +278,20 @@ class ExcelCompiler:
                 ])
             flat_headers = self._flatten_headers(headers)
 
-            # Étendue des données
+            # Étendue des données. On compte les lignes EXACTEMENT comme le
+            # chargement réel : dans la plage [data_start, end[, en excluant les
+            # lignes vides si remove_empty_rows est actif (sinon l'aperçu
+            # surestimerait le nombre de lignes par rapport à la compilation).
             end = data_end if (data_end and data_end > 0) else n
             end = min(end, n)
-            data_row_count = max(0, end - (data_start - 1))
+            data_row_count = 0
+            for idx in range(data_start - 1, end):
+                if idx < 0 or idx >= n:
+                    continue
+                row = df.iloc[idx].tolist()
+                if self.options.remove_empty_rows and self._is_row_empty(row):
+                    continue
+                data_row_count += 1
 
             return FilePreview(
                 file_path=file_path,
