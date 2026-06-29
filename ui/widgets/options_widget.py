@@ -36,6 +36,22 @@ class OptionsWidget(QWidget):
         detection_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         detection_layout = QVBoxLayout()
 
+        # === MODE 0: DÉTECTION AUTOMATIQUE (sans aucune saisie) ===
+        self.checkbox_auto_mode = QCheckBox("🤖 Détection automatique")
+        self.checkbox_auto_mode.setChecked(False)
+        self.checkbox_auto_mode.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        self.checkbox_auto_mode.setStyleSheet(f"color: {EXCEL_GREEN};")
+        self.checkbox_auto_mode.toggled.connect(self.on_mode_changed)
+        detection_layout.addWidget(self.checkbox_auto_mode)
+
+        help_auto_label = QLabel(
+            "Le système détecte seul les en-têtes et les données de chaque "
+            "fichier. Aucune saisie nécessaire."
+        )
+        help_auto_label.setStyleSheet("color: #666; font-size: 8pt; font-style: italic; padding-left: 25px;")
+        help_auto_label.setWordWrap(True)
+        detection_layout.addWidget(help_auto_label)
+
         # === MODE 1: FICHIER DE RÉFÉRENCE (Semi-automatique) ===
         self.checkbox_reference_mode = QCheckBox("✨ Utiliser fichier de référence (recommandé)")
         self.checkbox_reference_mode.setChecked(True)  # COCHÉ PAR DÉFAUT
@@ -229,30 +245,36 @@ class OptionsWidget(QWidget):
         layout.addWidget(advanced_group)
 
     def on_mode_changed(self, checked):
-        """Gère le changement de mode (référence/manuel)"""
-        sender = self.sender()
+        """Gère l'exclusivité des 3 modes de détection (auto / référence / manuel).
 
-        if sender == self.checkbox_reference_mode and checked:
-            # Mode référence activé → désactiver manuel
-            self.checkbox_manual_mode.blockSignals(True)
-            self.checkbox_manual_mode.setChecked(False)
-            self.checkbox_manual_mode.blockSignals(False)
-            self.reference_group.setVisible(True)
-            self.manual_group.setVisible(False)
-        elif sender == self.checkbox_manual_mode and checked:
-            # Mode manuel activé → désactiver référence
-            self.checkbox_reference_mode.blockSignals(True)
-            self.checkbox_reference_mode.setChecked(False)
-            self.checkbox_reference_mode.blockSignals(False)
-            self.reference_group.setVisible(False)
-            self.manual_group.setVisible(True)
-        elif not self.checkbox_reference_mode.isChecked() and not self.checkbox_manual_mode.isChecked():
-            # Aucun mode sélectionné → forcer mode référence
+        Les trois cases sont mutuellement exclusives. Cocher l'une décoche les
+        autres ; décocher la dernière active rebascule sur le mode référence
+        (jamais aucun mode sélectionné). La visibilité des panneaux de
+        configuration suit le mode actif.
+        """
+        sender = self.sender()
+        checkboxes = [
+            self.checkbox_auto_mode,
+            self.checkbox_reference_mode,
+            self.checkbox_manual_mode,
+        ]
+
+        if checked and sender in checkboxes:
+            # Décocher tous les autres modes
+            for cb in checkboxes:
+                if cb is not sender:
+                    cb.blockSignals(True)
+                    cb.setChecked(False)
+                    cb.blockSignals(False)
+        elif not any(cb.isChecked() for cb in checkboxes):
+            # Plus aucun mode sélectionné → revenir au mode référence
             self.checkbox_reference_mode.blockSignals(True)
             self.checkbox_reference_mode.setChecked(True)
             self.checkbox_reference_mode.blockSignals(False)
-            self.reference_group.setVisible(True)
-            self.manual_group.setVisible(False)
+
+        # Mettre à jour la visibilité des panneaux selon le mode actif
+        self.reference_group.setVisible(self.checkbox_reference_mode.isChecked())
+        self.manual_group.setVisible(self.checkbox_manual_mode.isChecked())
 
         self.options_changed.emit()
 
@@ -296,36 +318,41 @@ class OptionsWidget(QWidget):
         }
         date_format = date_format_map.get(date_format_str, DateFormat.FRENCH)
 
-        if self.checkbox_reference_mode.isChecked():
-            # MODE 1: FICHIER DE RÉFÉRENCE (semi-automatique)
+        # Options communes à tous les modes
+        common = dict(
+            filename_option=filename_option,
+            repeat_headers=self.checkbox_repeat_headers.isChecked(),
+            remove_empty_rows=self.checkbox_remove_empty.isChecked(),
+            remove_duplicates=self.checkbox_remove_duplicates.isChecked(),
+            sort_data=self.checkbox_sort_data.isChecked(),
+            sort_column=sort_column_index,
+            date_format=date_format,
+        )
+
+        if self.checkbox_auto_mode.isChecked():
+            # MODE 0: DÉTECTION AUTOMATIQUE (hybride, sans saisie)
             return CompilationOptions(
-                auto_detect_structure=False,  # Pas de détection hybride
-                use_reference_mode=True,  # Nouveau mode
-                reference_header_row=self.spinbox_ref_header.value(),
-                reference_header_lines=self.spinbox_ref_header_lines.value(),
-                filename_option=filename_option,
-                repeat_headers=self.checkbox_repeat_headers.isChecked(),
-                remove_empty_rows=self.checkbox_remove_empty.isChecked(),
-                # Options avancées
-                remove_duplicates=self.checkbox_remove_duplicates.isChecked(),
-                sort_data=self.checkbox_sort_data.isChecked(),
-                sort_column=sort_column_index,
-                date_format=date_format
+                auto_detect_structure=True,
+                use_reference_mode=False,
+                **common,
             )
-        else:
+        elif self.checkbox_manual_mode.isChecked():
             # MODE 2: CONFIGURATION MANUELLE COMPLÈTE
             return CompilationOptions(
                 auto_detect_structure=False,
+                use_reference_mode=False,
                 manual_header_start_row=self.spinbox_header_start.value(),
                 manual_header_rows=self.spinbox_header_rows.value(),
-                filename_option=filename_option,
-                repeat_headers=self.checkbox_repeat_headers.isChecked(),
-                remove_empty_rows=self.checkbox_remove_empty.isChecked(),
-                # Options avancées
-                remove_duplicates=self.checkbox_remove_duplicates.isChecked(),
-                sort_data=self.checkbox_sort_data.isChecked(),
-                sort_column=sort_column_index,
-                date_format=date_format
+                **common,
+            )
+        else:
+            # MODE 1: FICHIER DE RÉFÉRENCE (semi-automatique, défaut)
+            return CompilationOptions(
+                auto_detect_structure=False,
+                use_reference_mode=True,
+                reference_header_row=self.spinbox_ref_header.value(),
+                reference_header_lines=self.spinbox_ref_header_lines.value(),
+                **common,
             )
 
     def get_output_file(self) -> str:
@@ -335,6 +362,10 @@ class OptionsWidget(QWidget):
     def get_output_format(self) -> OutputFormat:
         """Retourne le format de sortie"""
         return self.combo_format.currentData()
+
+    def is_auto_mode_enabled(self) -> bool:
+        """Vérifie si le mode détection automatique est activé"""
+        return self.checkbox_auto_mode.isChecked()
 
     def is_reference_mode_enabled(self) -> bool:
         """Vérifie si le mode référence est activé"""
