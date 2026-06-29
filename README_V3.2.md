@@ -6,12 +6,13 @@ Cette version apporte une refonte majeure.
 
 **Disponible aujourd'hui :**
 - ✅ Architecture modulaire maintenable
-- ✅ Détection de structure par fichier de référence (mode par défaut)
+- ✅ Détection automatique de structure (en-têtes et données, sans saisie)
+- ✅ Détection de structure par fichier de référence
 - ✅ Interface PyQt6 (Windows 10/11)
 - ✅ Export Excel formaté, CSV, TSV
 
 **Prévu (voir [ROADMAP.md](ROADMAP.md)) :**
-- ⏳ Détection automatique hybride exposée dans l'interface (code présent, non branché)
+- ⏳ Aperçu de la détection avant compilation
 - ⏳ ML local optionnel (apprentissage personnalisé)
 - ⏳ Détection d'anomalies
 - ⏳ Traitement par chunks pour gros fichiers

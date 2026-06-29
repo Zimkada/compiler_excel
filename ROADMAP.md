@@ -22,30 +22,20 @@ le README ou l'interface tant qu'elle n'est pas livrée et testée.
   d'en-têtes, colonne « fichier source », formats de date (dont date+heure).
 - Export XLSX (formaté), CSV, TSV.
 - Progression réelle et annulation fonctionnelle.
+- **Mode de détection automatique** (hybride) : détecte seul en-têtes et données
+  de chaque fichier, sans saisie. Accessible via la case « Détection
+  automatique » des options. Détection corrigée (header_rows) et validation
+  croisée assainie ; vérifié sur fichiers réels (6/6).
 
 ---
 
 ## À venir
 
-### 1. Mode de détection automatique hybride (reconnexion)
+### 1. Améliorations du mode de détection automatique
 
-**Statut : détection réparée, pas encore exposée dans l'UI.**
-
-Le `HybridDetector` (BorderDetector + DensityDetector + PatternDetector + vote
-pondéré + validation croisée) est implémenté mais reste **inaccessible depuis
-l'interface** (seuls les modes « référence » et « manuel » sont proposés).
-
-Avancement :
-- ✅ Bug critique corrigé : le BorderDetector gonflait `header_rows` (5/13/29
-  lignes) dans les tableaux quadrillés → 0 donnée extraite. Désormais 6/6
-  fichiers réels correctement détectés, données complètes. Couvert par tests.
-- ✅ Validation croisée assainie : elle ne dégrade plus la confiance et ne pose
-  plus d'avertissements alarmants ; elle ne fait que renforcer la confiance
-  quand les fichiers se ressemblent fortement. Couvert par tests.
-
-Reste à faire avant exposition :
-- ⏳ **Exposer** une case « Détection automatique » dans `OptionsWidget`, idéalement
-  avec un aperçu de la détection (ligne d'en-tête trouvée) avant compilation.
+Le mode auto est **livré et fonctionnel**. Améliorations possibles :
+- ⏳ **Aperçu de détection** avant compilation (montrer la ligne d'en-tête
+  trouvée par fichier) — rassurant pour l'utilisateur, différenciant.
 - ⏳ Harmoniser la convention `data_end_row` entre détecteurs (le ReferenceDetector
   renvoie base 0 exclusive, le BorderDetector base 1) — sans impact aujourd'hui
   (l'usage est borné à `len(df)`) mais fragile.
