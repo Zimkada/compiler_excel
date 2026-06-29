@@ -26,6 +26,9 @@ le README ou l'interface tant qu'elle n'est pas livrée et testée.
   de chaque fichier, sans saisie. Accessible via la case « Détection
   automatique » des options. Détection corrigée (header_rows) et validation
   croisée assainie ; vérifié sur fichiers réels (6/6).
+- **Aperçu de la détection** avant compilation : bouton « Aperçu » montrant par
+  fichier la ligne d'en-tête, les colonnes, le nb de lignes et la confiance.
+  Fidèle à la compilation (même logique de détection).
 
 ---
 
@@ -33,9 +36,9 @@ le README ou l'interface tant qu'elle n'est pas livrée et testée.
 
 ### 1. Améliorations du mode de détection automatique
 
-Le mode auto est **livré et fonctionnel**. Améliorations possibles :
-- ⏳ **Aperçu de détection** avant compilation (montrer la ligne d'en-tête
-  trouvée par fichier) — rassurant pour l'utilisateur, différenciant.
+Le mode auto et son aperçu sont **livrés**. Améliorations possibles :
+- ⏳ Lancer l'aperçu dans un thread si le lot est volumineux (aujourd'hui
+  synchrone avec curseur d'attente — suffisant pour des lots courants).
 - ⏳ Harmoniser la convention `data_end_row` entre détecteurs (le ReferenceDetector
   renvoie base 0 exclusive, le BorderDetector base 1) — sans impact aujourd'hui
   (l'usage est borné à `len(df)`) mais fragile.
