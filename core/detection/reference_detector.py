@@ -37,7 +37,8 @@ class ReferenceDetector(BaseDetector):
                  reference_header_lines: int = 1,
                  similarity_threshold: float = 0.95,
                  min_similarity: float = 0.70,
-                 max_search_rows: int = 50):
+                 max_search_rows: int = 50,
+                 empty_block_threshold: int = 3):
         """
         Initialise le détecteur avec référence
 
@@ -48,6 +49,9 @@ class ReferenceDetector(BaseDetector):
             similarity_threshold: Seuil pour accepter automatiquement (0.95 = 95%)
             min_similarity: Seuil minimum pour accepter avec validation (0.70 = 70%)
             max_search_rows: Nombre max de lignes à chercher (50 par défaut)
+            empty_block_threshold: Nombre de lignes vides consécutives qui
+                marquent la fin du tableau (3 par défaut). Une ligne vide isolée
+                ne termine pas les données.
         """
         super().__init__(confidence_threshold=0.5)
 
@@ -57,6 +61,7 @@ class ReferenceDetector(BaseDetector):
         self.similarity_threshold = similarity_threshold
         self.min_similarity = min_similarity
         self.max_search_rows = max_search_rows
+        self.empty_block_threshold = max(1, empty_block_threshold)
 
         # Extraire les en-têtes de référence
         self.reference_headers = self._extract_reference_headers()
@@ -330,25 +335,40 @@ class ReferenceDetector(BaseDetector):
 
     def _find_data_end(self, df: pd.DataFrame, data_start_idx: int) -> int:
         """
-        Trouve la fin des données (première ligne vide)
+        Trouve la fin des données (bloc de lignes vides consécutives)
+
+        On ne coupe le tableau que lorsqu'on rencontre au moins
+        ``empty_block_threshold`` lignes presque vides d'affilée. Une ligne
+        vide isolée (séparateur, sous-total) ne termine PAS les données : elle
+        sera filtrée en aval si ``remove_empty_rows`` est activé. Cela évite de
+        tronquer silencieusement toutes les lignes situées après un trou unique.
 
         Args:
             df: DataFrame
             data_start_idx: Index de début des données (base 0, pandas)
 
         Returns:
-            Numéro de ligne de fin (base 1, Excel)
+            Index de fin des données, base 0, EXCLUSIF (= index de la première
+            ligne du premier bloc vide qualifiant, ou len(df) si aucun).
         """
-        data_end = len(df)
+        n = len(df)
+        run_start = None  # début du bloc vide courant (base 0)
+        run_len = 0
 
-        # Chercher la première ligne presque vide
-        for row_idx in range(data_start_idx, len(df)):
+        for row_idx in range(data_start_idx, n):
             density = self.calculate_row_density(df, row_idx)
             if density < 0.1:  # Ligne presque vide
-                data_end = row_idx  # base 0
-                break
+                if run_start is None:
+                    run_start = row_idx
+                run_len += 1
+                if run_len >= self.empty_block_threshold:
+                    # Bloc vide qualifiant: les données s'arrêtent à son début
+                    return run_start
+            else:
+                run_start = None
+                run_len = 0
 
-        return data_end  # Retourne en base 0 pour compatibilité
+        return n  # Aucun bloc vide qualifiant: les données vont jusqu'au bout
 
     def _create_failed_result(self, file_path: str, reason: str) -> DetectionResult:
         """

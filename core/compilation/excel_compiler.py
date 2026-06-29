@@ -7,7 +7,7 @@ Version: 3.2
 import time
 import logging
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Callable
 import pandas as pd
 import numpy as np
 import openpyxl
@@ -23,6 +23,11 @@ from .compilation_models import (
 from ..detection import HybridDetector, ReferenceDetector, DetectionResult
 from .excel_formatter import ExcelFormatter
 from utils import logger
+
+
+class CompilationCancelled(Exception):
+    """Levée en interne quand l'utilisateur annule la compilation."""
+    pass
 
 
 class ExcelCompiler:
@@ -51,6 +56,15 @@ class ExcelCompiler:
         self.options = options or CompilationOptions()
         self.logger = logger
 
+        # Valeur effective de repeat_headers pour la compilation courante
+        # (peut être neutralisée par compile_files si tri/dédup actifs, sans
+        # muter self.options). Initialisée ici pour robustesse.
+        self._effective_repeat_headers = self.options.repeat_headers
+
+        # Callbacks de progression / annulation (définis par compile_files)
+        self._progress_callback: Optional[Callable[[int, str], None]] = None
+        self._cancel_check: Optional[Callable[[], bool]] = None
+
         # Détecteur de structure selon le mode choisi
         self.detector: Optional[HybridDetector] = None
         self.reference_detector: Optional[ReferenceDetector] = None
@@ -69,7 +83,9 @@ class ExcelCompiler:
 
     def compile_files(self, file_paths: List[str],
                      output_file: str,
-                     output_format: OutputFormat = OutputFormat.XLSX) -> CompilationResult:
+                     output_format: OutputFormat = OutputFormat.XLSX,
+                     progress_callback: Optional[Callable[[int, str], None]] = None,
+                     cancel_check: Optional[Callable[[], bool]] = None) -> CompilationResult:
         """
         Compile plusieurs fichiers en un seul
 
@@ -77,11 +93,18 @@ class ExcelCompiler:
             file_paths: Liste des chemins de fichiers à compiler
             output_file: Chemin du fichier de sortie
             output_format: Format de sortie
+            progress_callback: Fonction optionnelle appelée avec (pourcentage,
+                message) à chaque étape pour suivre l'avancement réel.
+            cancel_check: Fonction optionnelle renvoyant True si l'utilisateur a
+                demandé l'annulation. Consultée avant chaque fichier; la
+                compilation s'arrête alors proprement.
 
         Returns:
             CompilationResult avec statistiques et détails
         """
         start_time = time.time()
+        self._progress_callback = progress_callback
+        self._cancel_check = cancel_check
 
         # Initialiser le résultat
         result = CompilationResult(
@@ -91,8 +114,23 @@ class ExcelCompiler:
 
         self.logger.info(f"Début compilation de {len(file_paths)} fichiers")
 
+        # Garde-fou: répéter les en-têtes entre fichiers est incompatible avec
+        # le tri ou la déduplication (les lignes d'en-tête réinjectées seraient
+        # traitées comme des données et triées/dédupliquées au milieu du tableau).
+        # Les options de transformation priment; on neutralise la répétition pour
+        # CETTE compilation uniquement, sans muter l'objet options de l'appelant.
+        self._effective_repeat_headers = self.options.repeat_headers
+        if self.options.repeat_headers and (self.options.sort_data
+                                            or self.options.remove_duplicates):
+            self._effective_repeat_headers = False
+            warn = ("Option 'répéter les en-têtes' désactivée car incompatible "
+                    "avec le tri / la suppression des doublons")
+            self.logger.warning(warn)
+            result.warnings.append(warn)
+
         try:
             # Étape 1: Détection automatique si activée
+            self._emit_progress(5, "Analyse de la structure des fichiers...")
             detection_results = self._detect_structures(file_paths, result)
 
             # Étape 2: Charger et compiler les données
@@ -108,9 +146,11 @@ class ExcelCompiler:
                 return result
 
             # Étape 3: Post-traitement (tri, doublons, etc.)
+            self._emit_progress(82, "Post-traitement (tri, doublons)...")
             combined_data = self._post_process_data(combined_data, headers, result)
 
             # Étape 4: Écrire le fichier de sortie
+            self._emit_progress(90, "Écriture du fichier de sortie...")
             self._write_output_file(
                 combined_data,
                 headers,
@@ -124,8 +164,17 @@ class ExcelCompiler:
             result.total_processing_time = time.time() - start_time
             result.calculate_statistics()
 
+            self._emit_progress(100, "Compilation terminée")
             self.logger.info(f"Compilation terminée: {result.successful_files}/{result.total_files} fichiers")
 
+            return result
+
+        except CompilationCancelled:
+            self.logger.info("Compilation annulée par l'utilisateur")
+            result.success = False
+            result.cancelled = True
+            result.warnings.append("Compilation annulée par l'utilisateur")
+            result.total_processing_time = time.time() - start_time
             return result
 
         except Exception as e:
@@ -134,6 +183,19 @@ class ExcelCompiler:
             result.warnings.append(f"Erreur fatale: {e}")
             result.total_processing_time = time.time() - start_time
             return result
+
+    def _emit_progress(self, percent: int, message: str):
+        """Notifie la progression si un callback est défini (jamais bloquant)."""
+        if self._progress_callback:
+            try:
+                self._progress_callback(percent, message)
+            except Exception as e:
+                self.logger.warning(f"Callback de progression a échoué: {e}")
+
+    def _check_cancel(self):
+        """Lève CompilationCancelled si l'utilisateur a demandé l'annulation."""
+        if self._cancel_check and self._cancel_check():
+            raise CompilationCancelled()
 
     def _detect_structures(self, file_paths: List[str],
                           result: CompilationResult) -> Dict[str, DetectionResult]:
@@ -212,8 +274,20 @@ class ExcelCompiler:
             )
 
         # Traiter chaque fichier
+        total = len(file_paths)
         for i, file_path in enumerate(file_paths):
             file_start_time = time.time()
+
+            # Permettre l'annulation avant de démarrer chaque fichier
+            self._check_cancel()
+
+            # Progression: répartir la plage 15%->80% sur les fichiers
+            if total > 0:
+                pct = 15 + int((i / total) * 65)
+                self._emit_progress(
+                    pct,
+                    f"Traitement {i+1}/{total} : {Path(file_path).name}"
+                )
 
             try:
                 self.logger.info(f"Traitement fichier {i+1}/{len(file_paths)}: {Path(file_path).name}")
@@ -262,7 +336,7 @@ class ExcelCompiler:
                     file_data = self._adjust_columns(file_data, file_headers, global_headers)
 
                 # Ajouter les en-têtes répétés si demandé
-                if self.options.repeat_headers and i > 0:
+                if self._effective_repeat_headers and i > 0:
                     # Utiliser les en-têtes globaux (qui incluent "Fichier source" si nécessaire)
                     combined_data.extend(global_headers)
 
@@ -627,7 +701,7 @@ class ExcelCompiler:
         # Trier les données
         if self.options.sort_data:
             self.logger.info(f"Tri des données par colonne {self.options.sort_column}")
-            data = self._sort_data(data, self.options.sort_column)
+            data = self._sort_data(data, self.options.sort_column, headers, result)
 
         return data
 
@@ -652,12 +726,48 @@ class ExcelCompiler:
 
         return unique_rows
 
-    def _sort_data(self, data: List[List], sort_column: int) -> List[List]:
-        """Trie les données par colonne"""
+    def _sort_data(self, data: List[List], sort_column: int,
+                   headers: List[List], result: CompilationResult) -> List[List]:
+        """
+        Trie les données par colonne, de façon robuste aux types mixtes.
+
+        - Si la colonne demandée n'existe pas, on avertit l'utilisateur
+          (warning visible) plutôt que d'ignorer silencieusement le tri.
+        - La clé de tri est normalisée pour ne jamais comparer directement
+          des types incompatibles (str vs nombre), ce qui levait un TypeError
+          avalé silencieusement et laissait les données non triées.
+        """
+        if not data:
+            return data
+
+        # Vérifier que la colonne existe (au moins sur les en-têtes ou la 1re ligne)
+        col_count = len(headers[-1]) if headers else len(data[0])
+        if sort_column < 0 or sort_column >= col_count:
+            msg = (f"Tri ignoré: colonne {sort_column + 1} hors limites "
+                   f"(le tableau a {col_count} colonnes)")
+            self.logger.warning(msg)
+            result.warnings.append(msg)
+            return data
+
+        def sort_key(row):
+            value = row[sort_column] if sort_column < len(row) else None
+            # Cellule vide -> en fin de tri
+            if value is None or (isinstance(value, float) and pd.isna(value)) or value == '':
+                return (2, '')
+            # Nombres triés numériquement, dans un groupe distinct des chaînes
+            if isinstance(value, bool):
+                return (1, str(value))
+            if isinstance(value, (int, float)):
+                return (0, float(value))
+            # Tout le reste comparé en chaîne (casse-insensible)
+            return (1, str(value).lower())
+
         try:
-            return sorted(data, key=lambda row: row[sort_column] if sort_column < len(row) else '')
+            return sorted(data, key=sort_key)
         except Exception as e:
-            self.logger.warning(f"Erreur tri: {e}")
+            msg = f"Tri échoué, données laissées dans l'ordre d'origine: {e}"
+            self.logger.warning(msg)
+            result.warnings.append(msg)
             return data
 
     def _write_output_file(self, data: List[List], headers: List[List],

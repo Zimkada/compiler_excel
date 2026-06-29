@@ -271,16 +271,19 @@ class OptionsWidget(QWidget):
         # Récupérer les options communes
         filename_option = self.combo_filename_option.currentData()
 
-        # Convertir la colonne de tri (A, B, C) en index (0, 1, 2)
+        # Convertir la colonne de tri (A, B, C, ... AA) ou (1, 2, 3) en index 0-based
         sort_column_index = 0
         if self.checkbox_sort_data.isChecked():
             sort_column_text = self.lineedit_sort_column.text().strip().upper()
             if sort_column_text.isalpha():
-                # Convertir A->0, B->1, etc.
-                sort_column_index = ord(sort_column_text[0]) - ord('A')
+                # Notation tableur multi-lettres: A->0, Z->25, AA->26, etc.
+                idx = 0
+                for ch in sort_column_text:
+                    idx = idx * 26 + (ord(ch) - ord('A') + 1)
+                sort_column_index = idx - 1
             elif sort_column_text.isdigit():
                 # Convertir 1->0, 2->1, etc.
-                sort_column_index = int(sort_column_text) - 1
+                sort_column_index = max(0, int(sort_column_text) - 1)
 
         # Récupérer le format de date
         date_format_str = self.combo_date_format.currentData()
@@ -289,7 +292,7 @@ class OptionsWidget(QWidget):
             "FRENCH": DateFormat.FRENCH,
             "STANDARD": DateFormat.ISO,
             "US": DateFormat.AMERICAN,
-            "DATETIME_FRENCH": DateFormat.FRENCH  # On garde FRENCH pour le moment
+            "DATETIME_FRENCH": DateFormat.DATETIME_FRENCH
         }
         date_format = date_format_map.get(date_format_str, DateFormat.FRENCH)
 

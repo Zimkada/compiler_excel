@@ -22,6 +22,7 @@ class DateFormat(Enum):
     FRENCH = "french"  # JJ/MM/AAAA
     AMERICAN = "american"  # MM/DD/YYYY
     ISO = "iso"  # YYYY-MM-DD
+    DATETIME_FRENCH = "datetime_french"  # JJ/MM/AAAA HH:MM:SS
 
 
 class OutputFormat(Enum):
@@ -144,6 +145,7 @@ class CompilationResult:
 
     # Statut
     success: bool = False
+    cancelled: bool = False
     output_file: Optional[str] = None
 
     # Statistiques globales

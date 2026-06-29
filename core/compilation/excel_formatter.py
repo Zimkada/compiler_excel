@@ -21,6 +21,7 @@ DATE_FORMATS_EXCEL = {
     "FRENCH": "dd/mm/yyyy",
     "AMERICAN": "mm/dd/yyyy",
     "ISO": "yyyy-mm-dd",
+    "DATETIME_FRENCH": "dd/mm/yyyy hh:mm:ss",
 }
 
 
