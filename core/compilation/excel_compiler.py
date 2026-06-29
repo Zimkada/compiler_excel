@@ -16,6 +16,7 @@ from .compilation_models import (
     CompilationOptions,
     CompilationResult,
     FileCompilationResult,
+    FilePreview,
     FilenameOption,
     DateFormat,
     OutputFormat
@@ -196,6 +197,126 @@ class ExcelCompiler:
         """Lève CompilationCancelled si l'utilisateur a demandé l'annulation."""
         if self._cancel_check and self._cancel_check():
             raise CompilationCancelled()
+
+    def preview_detection(self, file_paths: List[str]) -> List[FilePreview]:
+        """
+        Aperçu de la détection pour chaque fichier, SANS compiler.
+
+        Utilise exactement la même logique de détection que la compilation
+        (mode automatique, référence ou manuel selon les options), de sorte
+        que l'aperçu reflète fidèlement ce qui sera produit. Chaque fichier
+        est traité indépendamment : une erreur sur l'un n'interrompt pas les
+        autres.
+
+        Returns:
+            Liste de FilePreview, dans l'ordre des fichiers fournis.
+        """
+        # Réutilise la détection réelle (un CompilationResult sert de réceptacle
+        # aux éventuels warnings, qu'on n'expose pas ici).
+        scratch = CompilationResult(total_files=len(file_paths))
+        detections = self._detect_structures(file_paths, scratch)
+
+        previews: List[FilePreview] = []
+        for file_path in file_paths:
+            previews.append(self._build_preview(file_path, detections.get(file_path)))
+        return previews
+
+    def _build_preview(self, file_path: str,
+                       detection: Optional[DetectionResult]) -> FilePreview:
+        """Construit l'aperçu d'un fichier à partir de sa détection (ou du
+        mode manuel si aucune détection n'est disponible)."""
+        try:
+            # Déterminer les paramètres effectifs (détection ou manuel),
+            # en réutilisant le même critère de seuil que le chargement réel.
+            use_detection = (
+                detection is not None
+                and detection.confidence >= self.options.detection_confidence_threshold
+            )
+            if use_detection:
+                header_start = detection.header_start_row
+                header_rows = detection.header_rows
+                data_start = detection.data_start_row
+                data_end = detection.data_end_row
+                confidence = detection.confidence
+                method = detection.detection_method
+                warning = detection.warning
+            else:
+                header_start = self.options.manual_header_start_row
+                header_rows = self.options.manual_header_rows
+                data_start = header_start + header_rows
+                data_end = 0
+                confidence = 0.0
+                method = "manual"
+                warning = None
+
+            # Lire le fichier pour extraire en-têtes et compter les données
+            ext = Path(file_path).suffix.lower()
+            if ext in ['.xlsx', '.xls', '.xlsm']:
+                df = pd.read_excel(file_path, header=None)
+            elif ext == '.csv':
+                df = None
+                for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        df = pd.read_csv(file_path, header=None, encoding=enc)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                if df is None:
+                    raise ValueError("Impossible de décoder le fichier CSV")
+            elif ext in ['.tsv', '.txt']:
+                df = pd.read_csv(file_path, header=None, sep='\t', encoding='utf-8-sig')
+            else:
+                return FilePreview(file_path=file_path, success=False,
+                                   error=f"Format non supporté: {ext}")
+
+            n = len(df)
+            # En-têtes (fusion multi-lignes via le helper du détecteur de base)
+            headers: List[str] = []
+            for idx in range(header_start - 1, min(header_start - 1 + header_rows, n)):
+                headers.append([
+                    str(v) if pd.notna(v) else "" for v in df.iloc[idx].tolist()
+                ])
+            flat_headers = self._flatten_headers(headers)
+
+            # Étendue des données
+            end = data_end if (data_end and data_end > 0) else n
+            end = min(end, n)
+            data_row_count = max(0, end - (data_start - 1))
+
+            return FilePreview(
+                file_path=file_path,
+                success=True,
+                header_start_row=header_start,
+                header_rows=header_rows,
+                data_start_row=data_start,
+                data_end_row=end,
+                detected_headers=flat_headers,
+                confidence=confidence,
+                detection_method=method,
+                data_row_count=data_row_count,
+                warning=warning,
+            )
+
+        except Exception as e:
+            self.logger.warning(f"Aperçu impossible pour {Path(file_path).name}: {e}")
+            return FilePreview(file_path=file_path, success=False, error=str(e))
+
+    def _flatten_headers(self, header_rows: List[List]) -> List[str]:
+        """Fusionne d'éventuelles lignes d'en-tête multiples en une liste
+        de libellés (séparateur ' - '), pour affichage."""
+        if not header_rows:
+            return []
+        if len(header_rows) == 1:
+            return [str(h) for h in header_rows[0]]
+        col_count = max(len(r) for r in header_rows)
+        flat = []
+        for col in range(col_count):
+            parts = []
+            for row in header_rows:
+                if col < len(row) and row[col]:
+                    parts.append(str(row[col]))
+            flat.append(" - ".join(parts))
+        return flat
 
     def _detect_structures(self, file_paths: List[str],
                           result: CompilationResult) -> Dict[str, DetectionResult]:

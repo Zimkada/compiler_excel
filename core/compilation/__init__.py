@@ -6,6 +6,7 @@ from .compilation_models import (
     CompilationOptions,
     CompilationResult,
     FileCompilationResult,
+    FilePreview,
     FilenameOption,
     DateFormat,
     OutputFormat
@@ -16,6 +17,7 @@ __all__ = [
     'CompilationOptions',
     'CompilationResult',
     'FileCompilationResult',
+    'FilePreview',
     'FilenameOption',
     'DateFormat',
     'OutputFormat',

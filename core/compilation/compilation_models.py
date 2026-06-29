@@ -100,6 +100,34 @@ class CompilationOptions:
 
 
 @dataclass
+class FilePreview:
+    """
+    Aperçu de la détection pour un fichier, avant compilation.
+
+    Permet à l'utilisateur de vérifier ce que le système a détecté
+    (ligne d'en-tête, en-têtes, étendue des données) sans lancer la
+    compilation complète.
+    """
+
+    file_path: str
+    success: bool = True
+    header_start_row: int = 1
+    header_rows: int = 1
+    data_start_row: int = 2
+    data_end_row: int = 0
+    detected_headers: List[str] = field(default_factory=list)
+    confidence: float = 0.0
+    detection_method: str = "manual"
+    data_row_count: int = 0
+    warning: Optional[str] = None
+    error: Optional[str] = None
+
+    @property
+    def filename(self) -> str:
+        return Path(self.file_path).name
+
+
+@dataclass
 class FileCompilationResult:
     """
     Résultat de compilation pour un fichier individuel

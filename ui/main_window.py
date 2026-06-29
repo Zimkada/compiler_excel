@@ -163,6 +163,30 @@ class MainWindow(QMainWindow):
         button_layout.setContentsMargins(10, 10, 10, 10)
         button_layout.addStretch()
 
+        # Bouton aperçu de la détection (vérification avant compilation)
+        self.button_preview = QPushButton("👁  Aperçu")
+        self.button_preview.setFont(QFont("Segoe UI", 11))
+        self.button_preview.setMinimumSize(130, 50)
+        self.button_preview.setStyleSheet(f"""
+            QPushButton {{
+                background-color: white;
+                color: {EXCEL_GREEN};
+                border: 2px solid {EXCEL_GREEN};
+                border-radius: 8px;
+                padding: 10px 16px;
+            }}
+            QPushButton:hover {{
+                background-color: #eef7f1;
+            }}
+            QPushButton:disabled {{
+                background-color: #f5f5f5;
+                color: #aaaaaa;
+                border-color: #cccccc;
+            }}
+        """)
+        self.button_preview.clicked.connect(self.show_detection_preview)
+        button_layout.addWidget(self.button_preview)
+
         self.button_compile = QPushButton("▶️  COMPILER")
         self.button_compile.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         self.button_compile.setMinimumSize(200, 50)
@@ -272,6 +296,43 @@ class MainWindow(QMainWindow):
             self.status_label.setText("1 fichier sélectionné")
         else:
             self.status_label.setText(f"{count} fichiers sélectionnés")
+
+    def show_detection_preview(self):
+        """Affiche un aperçu de la détection des fichiers sélectionnés.
+
+        Utilise la même logique de détection que la compilation, selon le
+        mode actif (automatique / référence / manuel).
+        """
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtGui import QCursor
+        from core.compilation import ExcelCompiler
+        from ui.widgets.preview_dialog import PreviewDialog
+
+        selected_files = self.file_selector.get_selected_files()
+        if not selected_files:
+            QMessageBox.warning(
+                self, "Aucun fichier",
+                "Veuillez sélectionner au moins un fichier à prévisualiser."
+            )
+            return
+
+        options = self.options_widget.get_compilation_options()
+        self.status_label.setText("Analyse de la détection en cours...")
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        try:
+            previews = ExcelCompiler(options).preview_detection(selected_files)
+        except Exception as e:
+            logger.error(f"Erreur aperçu détection: {e}", exc_info=True)
+            QMessageBox.critical(
+                self, "Erreur d'aperçu",
+                f"Impossible de générer l'aperçu:\n\n{e}"
+            )
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.status_label.setText("Prêt")
+
+        PreviewDialog(previews, parent=self).exec()
 
     def start_compilation(self):
         """Démarre la compilation"""
