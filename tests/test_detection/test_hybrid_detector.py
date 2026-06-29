@@ -151,3 +151,55 @@ class TestHybridDetector:
         # Les stop words ne devraient pas être inclus
         assert 'de' not in words
         assert 'la' not in words
+
+
+class TestCrossValidationAdjustment:
+    """La validation croisée ne doit jamais dégrader ni alarmer, seulement
+    renforcer la confiance quand les fichiers se ressemblent fortement."""
+
+    def _result(self, confidence=0.8):
+        from core.detection import DetectionResult
+        return DetectionResult(file_path="f.xlsx", confidence=confidence)
+
+    def test_low_similarity_does_not_degrade_confidence(self):
+        detector = HybridDetector()
+        r = self._result(confidence=0.80)
+        adjusted = detector._adjust_confidence_with_cross_validation(r, 0.10)
+        assert adjusted.confidence == 0.80  # inchangée
+
+    def test_low_similarity_does_not_set_warning(self):
+        detector = HybridDetector()
+        r = self._result()
+        adjusted = detector._adjust_confidence_with_cross_validation(r, 0.10)
+        assert adjusted.warning is None
+
+    def test_medium_similarity_no_warning(self):
+        detector = HybridDetector()
+        r = self._result()
+        adjusted = detector._adjust_confidence_with_cross_validation(r, 0.45)
+        assert adjusted.warning is None
+        assert adjusted.confidence == 0.80
+
+    def test_high_similarity_gives_bonus(self):
+        detector = HybridDetector()
+        r = self._result(confidence=0.80)
+        adjusted = detector._adjust_confidence_with_cross_validation(r, 0.90)
+        assert adjusted.confidence > 0.80
+        assert adjusted.confidence <= 1.0
+
+    def test_score_recorded_in_debug(self):
+        detector = HybridDetector()
+        r = self._result()
+        adjusted = detector._adjust_confidence_with_cross_validation(r, 0.33)
+        assert adjusted.debug_info.get('cross_validation_score') == 0.33
+
+    def test_batch_on_dissimilar_files_emits_no_warning(self):
+        """Régression: des fichiers réels dissemblables mais correctement
+        détectés ne doivent produire aucun avertissement."""
+        detector = HybridDetector(enable_cross_validation=True)
+        sample_dir = Path("tests/test_data/sample_files")
+        files = [str(f) for f in sample_dir.glob("CEG*.xlsx")]
+        if len(files) < 2:
+            pytest.skip("Pas assez de fichiers réels")
+        results = detector.detect_batch(files)
+        assert all(r.warning is None for r in results)

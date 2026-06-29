@@ -387,30 +387,32 @@ class HybridDetector(BaseDetector):
     def _adjust_confidence_with_cross_validation(self, result: DetectionResult,
                                                  cross_val_score: float) -> DetectionResult:
         """
-        Ajuste la confiance basée sur le score de validation croisée
+        Ajuste la confiance à partir du score de validation croisée.
+
+        Principe : la validation croisée ne sert qu'à RENFORCER la confiance
+        quand plusieurs fichiers se ressemblent fortement. Elle ne doit jamais
+        dégrader une détection ni produire d'avertissement.
+
+        En effet, une faible similarité des en-têtes entre fichiers n'indique
+        PAS une erreur de détection : elle signifie simplement que les fichiers
+        portent sur des sujets différents (ex. listes par établissement, dont
+        seuls quelques libellés de colonnes coïncident). Pénaliser ou avertir
+        dans ce cas produisait des faux positifs systématiques, y compris sur
+        des détections parfaitement correctes.
+
+        Le score est consigné en debug pour diagnostic, sans warning visible.
 
         Args:
             result: DetectionResult original
-            cross_val_score: Score de validation croisée
+            cross_val_score: Score de validation croisée (0.0 à 1.0)
 
         Returns:
-            DetectionResult avec confiance ajustée
+            DetectionResult avec confiance éventuellement renforcée
         """
-        # Si la similarité est très faible (<0.3), diminuer la confiance
-        if cross_val_score < 0.3:
-            result.confidence = result.confidence * 0.8
-            result.warning = (
-                f"Détection suspecte: en-têtes très différents des autres fichiers "
-                f"(similarité: {cross_val_score:.0%})"
-            )
-        # Si la similarité est faible (<0.5), avertir
-        elif cross_val_score < 0.5:
-            result.warning = (
-                f"En-têtes partiellement différents des autres fichiers "
-                f"(similarité: {cross_val_score:.0%})"
-            )
-        # Si la similarité est élevée (>0.7), bonus de confiance
-        elif cross_val_score > 0.7:
+        result.debug_info['cross_validation_score'] = cross_val_score
+
+        # Bonus de confiance uniquement quand les fichiers se ressemblent fortement
+        if cross_val_score > 0.7:
             result.confidence = min(1.0, result.confidence * 1.1)
 
         return result
