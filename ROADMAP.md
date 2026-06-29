@@ -29,14 +29,32 @@ le README ou l'interface tant qu'elle n'est pas livrée et testée.
 
 ### 1. Mode de détection automatique hybride (reconnexion)
 
-**Statut : code existant, non exposé.** Le `HybridDetector` (BorderDetector +
-DensityDetector + PatternDetector + vote pondéré + validation croisée) est
-implémenté et testé (voir `PHASE1_COMPLETE.md`) mais **inaccessible depuis
+**Statut : détection réparée, pas encore exposée dans l'UI.**
+
+Le `HybridDetector` (BorderDetector + DensityDetector + PatternDetector + vote
+pondéré + validation croisée) est implémenté mais reste **inaccessible depuis
 l'interface** (seuls les modes « référence » et « manuel » sont proposés).
 
-- Décision à prendre : exposer une case « détection automatique » dans
-  `OptionsWidget`, ou archiver le détecteur si le mode référence suffit.
-- Si exposé : prévoir un aperçu de la détection avant compilation (rassurant).
+Avancement :
+- ✅ Bug critique corrigé : le BorderDetector gonflait `header_rows` (5/13/29
+  lignes) dans les tableaux quadrillés → 0 donnée extraite. Désormais 6/6
+  fichiers réels correctement détectés, données complètes. Couvert par tests.
+
+Reste à faire avant exposition :
+- ⏳ **Validation croisée à neutraliser/atténuer.** Elle baisse la confiance et
+  pose des avertissements alarmants (« détection suspecte ») dès que les
+  en-têtes de contenu diffèrent entre fichiers — faux positif systématique sur
+  des fichiers légitimement différents (ex. listes par établissement). Avec la
+  détection désormais correcte (haute confiance), elle ne se déclenche pas sur
+  les fichiers réels testés, mais le mécanisme reste à corriger : la validation
+  croisée ne devrait que **renforcer** la confiance, jamais la dégrader ni
+  alarmer. Fichier : `core/detection/hybrid_detector.py`
+  (`_adjust_confidence_with_cross_validation`).
+- ⏳ **Exposer** une case « Détection automatique » dans `OptionsWidget`, idéalement
+  avec un aperçu de la détection (ligne d'en-tête trouvée) avant compilation.
+- ⏳ Harmoniser la convention `data_end_row` entre détecteurs (le ReferenceDetector
+  renvoie base 0 exclusive, le BorderDetector base 1) — sans impact aujourd'hui
+  (l'usage est borné à `len(df)`) mais fragile.
 - Fichiers concernés : `core/detection/hybrid_detector.py`,
   `ui/widgets/options_widget.py`, `core/compilation/excel_compiler.py`.
 
