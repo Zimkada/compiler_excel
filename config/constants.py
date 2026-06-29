@@ -14,7 +14,8 @@ CHUNK_SIZE = 10000
 
 # Formats supportés
 SUPPORTED_INPUT_FORMATS = ['.xlsx', '.xls', '.csv', '.tsv', '.txt']
-SUPPORTED_OUTPUT_FORMATS = ['xlsx', 'csv', 'parquet', 'json']
+# Formats d'export réellement disponibles. parquet / json sont prévus (ROADMAP).
+SUPPORTED_OUTPUT_FORMATS = ['xlsx', 'csv', 'tsv']
 
 # Sécurité
 SECURITY_LEVEL = "high"
@@ -26,12 +27,13 @@ CONFIDENCE_DENSITY_DETECTION = 0.80
 CONFIDENCE_PATTERN_DETECTION = 0.70
 CONFIDENCE_FALLBACK = 0.60
 
-# Détection anomalies - Seuils
+# Détection anomalies - Seuils (FONCTIONNALITÉ PRÉVUE, non implémentée — voir ROADMAP.md)
+# Conservés pour documenter les paramètres cibles lors de l'implémentation.
 OUTLIER_IQR_MULTIPLIER = 3.0
 MISSING_VALUES_THRESHOLD = 0.20  # 20%
 DUPLICATE_CHECK_ENABLED = True
 
-# ML local
+# ML local (FONCTIONNALITÉ PRÉVUE, non implémentée — voir ROADMAP.md)
 ML_LOCAL_MIN_TRAINING_SIZE = 10
 ML_LOCAL_ENABLED_BY_DEFAULT = False
 

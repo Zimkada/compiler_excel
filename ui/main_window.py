@@ -221,10 +221,9 @@ class MainWindow(QMainWindow):
 
         <h3>Nouveautés v3.2</h3>
         <ul>
-            <li>✨ <b>Détection automatique de structure</b> - Le système détecte automatiquement les en-têtes et données</li>
-            <li>🔍 <b>Validation croisée</b> - Vérification de compatibilité entre fichiers</li>
+            <li>✨ <b>Détection par fichier de référence</b> - Indiquez l'en-tête du premier fichier, les autres sont alignés automatiquement</li>
             <li>🎯 <b>Architecture modulaire</b> - Code propre et maintenable</li>
-            <li>⚡ <b>Interface simplifiée</b> - Workflow optimisé en 3 clics</li>
+            <li>⚡ <b>Interface simplifiée</b> - Workflow optimisé en quelques clics</li>
             <li>📊 <b>Statistiques détaillées</b> - Résultats complets avec métriques</li>
         </ul>
 
@@ -232,7 +231,7 @@ class MainWindow(QMainWindow):
         <ul>
             <li>Compilation de fichiers Excel (.xlsx, .xls, .xlsm)</li>
             <li>Support CSV et TSV</li>
-            <li>Détection automatique ou configuration manuelle</li>
+            <li>Détection par fichier de référence ou configuration manuelle</li>
             <li>Gestion des en-têtes multi-lignes</li>
             <li>Export en Excel, CSV ou TSV</li>
             <li>Ajout automatique du nom de fichier source</li>

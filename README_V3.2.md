@@ -2,13 +2,20 @@
 
 ## 🎯 Objectifs de la v3.2
 
-Cette version apporte une refonte majeure avec :
+Cette version apporte une refonte majeure.
+
+**Disponible aujourd'hui :**
 - ✅ Architecture modulaire maintenable
-- ✅ Détection intelligente de structure (85-95% précision)
-- ✅ ML local optionnel (apprentissage personnalisé)
-- ✅ Détection d'anomalies
-- ✅ UI moderne (Accordion + Palette Excel Native)
-- ✅ PyQt6 uniquement (Windows 10/11)
+- ✅ Détection de structure par fichier de référence (mode par défaut)
+- ✅ Interface PyQt6 (Windows 10/11)
+- ✅ Export Excel formaté, CSV, TSV
+
+**Prévu (voir [ROADMAP.md](ROADMAP.md)) :**
+- ⏳ Détection automatique hybride exposée dans l'interface (code présent, non branché)
+- ⏳ ML local optionnel (apprentissage personnalisé)
+- ⏳ Détection d'anomalies
+- ⏳ Traitement par chunks pour gros fichiers
+- ⏳ Formats d'export Parquet / JSON
 
 ## 📂 Structure du projet
 
