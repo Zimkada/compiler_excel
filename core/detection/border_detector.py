@@ -72,8 +72,13 @@ class BorderDetector(BaseDetector):
             # Analyser les bordures de chaque ligne
             border_analysis = self._analyze_borders(ws)
 
-            # Détecter la zone de tableau
-            table_zone = self._detect_table_zone(border_analysis)
+            # Charger le DataFrame (nécessaire pour distinguer en-tête et données)
+            if df is None:
+                df = self.load_file(file_path)
+
+            # Détecter la zone de tableau (le contenu départage en-tête/données
+            # quand les bordures ne suffisent pas — cas du tableau quadrillé)
+            table_zone = self._detect_table_zone(border_analysis, df)
 
             if table_zone is None:
                 return self._create_failed_result(
@@ -83,10 +88,6 @@ class BorderDetector(BaseDetector):
 
             # Extraire les informations
             header_start, header_end, data_end = table_zone
-
-            # Charger le DataFrame pour extraire les en-têtes
-            if df is None:
-                df = self.load_file(file_path)
 
             # Calculer le nombre de lignes d'en-tête
             header_rows = header_end - header_start + 1
@@ -195,12 +196,21 @@ class BorderDetector(BaseDetector):
 
         return analysis
 
-    def _detect_table_zone(self, border_analysis: Dict[int, Dict]) -> Optional[Tuple[int, int, int]]:
+    def _detect_table_zone(self, border_analysis: Dict[int, Dict],
+                           df) -> Optional[Tuple[int, int, int]]:
         """
-        Détecte la zone du tableau basée sur les bordures
+        Détecte la zone du tableau (en-tête + données).
+
+        Les bordures localisent le tableau (première ligne bordée = début).
+        Mais dans un tableau entièrement quadrillé, en-tête et données ont les
+        mêmes bordures : on ne peut pas les distinguer par les bordures seules.
+        On départage donc par le CONTENU (is_likely_header_row : une ligne
+        d'en-tête est majoritairement textuelle), ce qui évite de gonfler le
+        nombre de lignes d'en-tête avec des lignes de données.
 
         Args:
-            border_analysis: Résultat de _analyze_borders
+            border_analysis: Résultat de _analyze_borders (clés = lignes base 1)
+            df: DataFrame du fichier (base 0)
 
         Returns:
             Tuple (header_start, header_end, data_end) ou None
@@ -208,40 +218,69 @@ class BorderDetector(BaseDetector):
         """
         rows = sorted(border_analysis.keys())
 
-        # Chercher la première ligne avec densité de bordures élevée
+        # 1) Première ligne bordée = début du tableau (donc des en-têtes)
         header_start = None
         for row_num in rows:
-            density = border_analysis[row_num]['border_density']
-            if density >= self.border_density_threshold:
+            if border_analysis[row_num]['border_density'] >= self.border_density_threshold:
                 header_start = row_num
                 break
 
         if header_start is None:
             return None
 
-        # Déterminer où se terminent les en-têtes
-        # Les en-têtes ont généralement des bordures complètes
-        header_end = header_start
-        for row_num in rows[header_start:]:
-            full_density = border_analysis[row_num]['full_border_density']
-            # Si la densité de bordures complètes chute, les en-têtes sont terminés
-            if full_density < self.border_density_threshold * 0.5:
+        # 2) Fin du tableau = dernière ligne consécutivement bordée
+        data_end = header_start
+        for row_num in rows:
+            if row_num < header_start:
+                continue
+            if border_analysis[row_num]['border_density'] < self.border_density_threshold * 0.3:
                 break
-            header_end = row_num
-
-        # Trouver la fin des données
-        # Les données ont généralement des bordures latérales (left/right)
-        data_end = header_end
-        for row_num in rows[header_end:]:
-            density = border_analysis[row_num]['border_density']
-
-            # Si la densité chute significativement, les données sont terminées
-            if density < self.border_density_threshold * 0.3:
-                break
-
             data_end = row_num
 
+        # 3) Fin des en-têtes par le contenu. Dans ces tableaux, les lignes de
+        #    données contiennent des valeurs numériques (n° d'ordre, matricule,
+        #    montants...) tandis que les lignes d'en-tête sont purement
+        #    textuelles. On étend l'en-tête tant que la ligne ne contient aucune
+        #    cellule numérique, en s'arrêtant à la première ligne de données.
+        #    Borné à 5 lignes pour rester robuste.
+        #
+        #    Garde-fou: ce critère ne fonctionne que si les DONNÉES contiennent
+        #    des nombres. Pour un tableau 100% textuel (annuaire, etc.), aucune
+        #    ligne ne servirait de butoir et l'en-tête engloutirait les données.
+        #    Dans ce cas on retombe sur le défaut sûr : 1 seule ligne d'en-tête.
+        header_end = header_start
+        data_zone_has_numbers = any(
+            self._row_numeric_count(df, rn - 1) > 0
+            for rn in range(header_start + 1, data_end + 1)
+        )
+        if data_zone_has_numbers:
+            max_header_end = min(header_start + 4, data_end)
+            for row_num in range(header_start + 1, max_header_end + 1):
+                if self._row_numeric_count(df, row_num - 1) == 0:
+                    header_end = row_num
+                else:
+                    break
+
         return (header_start, header_end, data_end)
+
+    def _row_numeric_count(self, df, row_idx: int) -> int:
+        """Nombre de cellules numériques dans une ligne (base 0)."""
+        if row_idx >= len(df):
+            return 0
+        count = 0
+        for val in df.iloc[row_idx]:
+            if pd.notna(val):
+                if isinstance(val, bool):
+                    continue
+                if isinstance(val, (int, float)):
+                    count += 1
+                else:
+                    try:
+                        float(val)
+                        count += 1
+                    except (ValueError, TypeError):
+                        pass
+        return count
 
     def _calculate_confidence(self, border_analysis: Dict[int, Dict],
                             table_zone: Tuple[int, int, int]) -> float:
