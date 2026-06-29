@@ -47,6 +47,10 @@ def main():
     app.setApplicationVersion("3.2")
     app.setOrganizationName("GOUNOU N'GOBI Chabi Zimé")
 
+    # Appliquer le design system premium (feuille de style globale)
+    from ui.styles import build_stylesheet
+    app.setStyleSheet(build_stylesheet())
+
     # Définir l'icône de l'application (si disponible)
     icon_path = Path("icon.png")
     if icon_path.exists():

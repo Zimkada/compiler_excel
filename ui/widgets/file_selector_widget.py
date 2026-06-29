@@ -48,22 +48,8 @@ class FileSelectorWidget(QWidget):
 
         self.button_choose_directory = QPushButton("📂 Choisir un dossier")
         self.button_choose_directory.setFont(QFont("Segoe UI", 9))
-        self.button_choose_directory.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {EXCEL_GREEN};
-                color: white;
-                padding: 8px 16px;
-                border: none;
-                border-radius: 4px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background-color: #1a5c37;
-            }}
-            QPushButton:pressed {{
-                background-color: #14462a;
-            }}
-        """)
+        self.button_choose_directory.setProperty("variant", "primary")
+        self.button_choose_directory.setCursor(Qt.CursorShape.PointingHandCursor)
         self.button_choose_directory.clicked.connect(self.choose_directory)
 
         dir_layout.addWidget(self.label_directory, 1)
@@ -89,24 +75,7 @@ class FileSelectorWidget(QWidget):
         self.list_files.setMinimumHeight(150)
         self.list_files.setMaximumHeight(250)
         self.list_files.itemSelectionChanged.connect(self.on_selection_changed)
-        self.list_files.setStyleSheet("""
-            QListWidget {
-                border: 1px solid #d0d0d0;
-                border-radius: 4px;
-                padding: 4px;
-            }
-            QListWidget::item {
-                padding: 6px;
-                border-bottom: 1px solid #f0f0f0;
-            }
-            QListWidget::item:selected {
-                background-color: #e8f5e9;
-                color: #1a5c37;
-            }
-            QListWidget::item:hover {
-                background-color: #f5f5f5;
-            }
-        """)
+        # Style hérité du design system global (QListWidget)
 
         group_layout.addWidget(self.list_files)
 

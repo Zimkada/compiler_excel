@@ -5,11 +5,12 @@ Auteur: GOUNOU N'GOBI Chabi Zimé
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QMessageBox, QTabWidget, QTextBrowser,
-    QLabel
+    QPushButton, QMessageBox, QTextBrowser, QLabel,
+    QStackedWidget, QFrame, QScrollArea, QButtonGroup,
+    QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont, QIcon, QColor
 from pathlib import Path
 
 from ui.widgets import (
@@ -20,6 +21,7 @@ from ui.widgets import (
 )
 from ui.workers import CompilationWorker
 from ui.styles import EXCEL_GREEN, WHITE
+from ui.styles import theme as T
 from utils import logger
 
 
@@ -37,185 +39,227 @@ class MainWindow(QMainWindow):
         self.connect_signals()
 
     def setup_ui(self):
-        """Configure l'interface utilisateur"""
-        self.setWindowTitle("ExcelCompiler v3.2 - Compilateur Excel Intelligent")
-        self.setMinimumSize(900, 700)
+        """Configure l'interface utilisateur (header héro + sidebar + pages)."""
+        self.setWindowTitle("ExcelCompiler — Compilateur Excel Intelligent")
+        self.setMinimumSize(1080, 720)
+        self.resize(1200, 800)
 
-        # Widget central
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(15)
+        root = QVBoxLayout(central_widget)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # === HEADER ===
-        header = self.create_header()
-        main_layout.addWidget(header)
+        # === HEADER HÉRO ===
+        root.addWidget(self.create_header())
 
-        # === TABS ===
-        tabs = QTabWidget()
-        tabs.setFont(QFont("Segoe UI", 9))
-        tabs.setStyleSheet(f"""
-            QTabWidget::pane {{
-                border: 1px solid #d0d0d0;
-                border-radius: 4px;
-                background-color: white;
-            }}
-            QTabBar::tab {{
-                background-color: #f0f0f0;
-                color: #333;
-                padding: 10px 20px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }}
-            QTabBar::tab:selected {{
-                background-color: {EXCEL_GREEN};
-                color: white;
-                font-weight: bold;
-            }}
-            QTabBar::tab:hover {{
-                background-color: #e0e0e0;
-            }}
-        """)
+        # === CORPS : sidebar + pages ===
+        body = QWidget()
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(T.SPACE_LG, T.SPACE_LG, T.SPACE_LG, T.SPACE_SM)
+        body_layout.setSpacing(T.SPACE_LG)
 
-        # ONGLET 1: COMPILATION
-        compilation_tab = self.create_compilation_tab()
-        tabs.addTab(compilation_tab, "📝 Compilation")
+        self.sidebar = self.create_sidebar()
+        body_layout.addWidget(self.sidebar)
 
-        # ONGLET 2: RÉSULTATS
-        results_tab = self.create_results_tab()
-        tabs.addTab(results_tab, "📊 Résultats")
+        # Pages empilées
+        self.pages = QStackedWidget()
+        self.pages.addWidget(self.create_compilation_tab())   # index 0
+        self.pages.addWidget(self.create_results_tab())       # index 1
+        self.pages.addWidget(self.create_about_tab())         # index 2
+        body_layout.addWidget(self.pages, stretch=1)
 
-        # ONGLET 3: À PROPOS
-        about_tab = self.create_about_tab()
-        tabs.addTab(about_tab, "ℹ️  À propos")
+        root.addWidget(body, stretch=1)
 
-        main_layout.addWidget(tabs)
-
-        # === FOOTER (Status bar) ===
+        # === FOOTER (barre de statut discrète) ===
+        footer = QWidget()
+        footer.setStyleSheet(f"background-color: {T.BG_SURFACE}; "
+                             f"border-top: 1px solid {T.BORDER};")
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(T.SPACE_LG, T.SPACE_SM, T.SPACE_LG, T.SPACE_SM)
         self.status_label = QLabel("Prêt")
-        self.status_label.setStyleSheet("color: #666; padding: 5px;")
-        main_layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: {T.FONT_SIZE_SM}pt;")
+        footer_layout.addWidget(self.status_label)
+        footer_layout.addStretch()
+        root.addWidget(footer)
 
     def create_header(self) -> QWidget:
-        """Crée le header de l'application"""
+        """Header héro : bandeau accent avec logo, titre et accroche."""
         header = QWidget()
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
+        header.setFixedHeight(84)
+        header.setStyleSheet(f"background-color: {T.ACCENT};")
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(T.SPACE_LG, 0, T.SPACE_LG, 0)
+        layout.setSpacing(T.SPACE_MD)
 
-        title = QLabel("ExcelCompiler v3.2")
-        title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
-        title.setStyleSheet(f"color: {EXCEL_GREEN}; padding: 5px;")
+        # Pastille logo
+        logo = QLabel("📊")
+        logo.setFixedSize(48, 48)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo.setStyleSheet(
+            f"background-color: rgba(255,255,255,40); border-radius: {T.RADIUS_MD}px; "
+            f"font-size: 22pt;"
+        )
+        layout.addWidget(logo)
 
-        subtitle = QLabel("Compilateur Excel Intelligent avec Détection Automatique")
-        subtitle.setFont(QFont("Segoe UI", 9))
-        subtitle.setStyleSheet("color: #666; font-style: italic; padding-bottom: 10px;")
+        # Titre + accroche
+        text_col = QVBoxLayout()
+        text_col.setSpacing(0)
+        title = QLabel("ExcelCompiler")
+        title.setStyleSheet(
+            f"color: {T.TEXT_ON_ACCENT}; font-size: 18pt; font-weight: 800;"
+        )
+        subtitle = QLabel("Compilez vos fichiers Excel en un clic, sans effort.")
+        subtitle.setStyleSheet("color: rgba(255,255,255,210); font-size: 10pt;")
+        text_col.addWidget(title)
+        text_col.addWidget(subtitle)
+        layout.addLayout(text_col)
 
-        header_layout.addWidget(title)
-        header_layout.addWidget(subtitle)
+        layout.addStretch()
+
+        # Badge version
+        badge = QLabel("v3.2")
+        badge.setStyleSheet(
+            f"color: {T.TEXT_ON_ACCENT}; background-color: rgba(255,255,255,38); "
+            f"border-radius: {T.RADIUS_SM}px; padding: 5px 12px; font-weight: 700;"
+        )
+        layout.addWidget(badge)
 
         return header
 
-    def create_compilation_tab(self) -> QWidget:
-        """Crée l'onglet de compilation principal"""
-        from PyQt6.QtWidgets import QScrollArea
+    def create_sidebar(self) -> QWidget:
+        """Navigation latérale (remplace les onglets) pilotant le QStackedWidget."""
+        sidebar = QFrame()
+        sidebar.setFixedWidth(208)
+        sidebar.setStyleSheet(
+            f"QFrame {{ background-color: {T.BG_SURFACE}; "
+            f"border: 1px solid {T.BORDER}; border-radius: {T.RADIUS_LG}px; }}"
+        )
+        layout = QVBoxLayout(sidebar)
+        layout.setContentsMargins(T.SPACE_SM, T.SPACE_MD, T.SPACE_SM, T.SPACE_MD)
+        layout.setSpacing(T.SPACE_XS)
 
+        self.nav_group = QButtonGroup(self)
+        self.nav_group.setExclusive(True)
+        nav_items = [
+            ("📝", "Compilation", 0),
+            ("📊", "Résultats", 1),
+            ("ℹ️", "À propos", 2),
+        ]
+        for icon, label, index in nav_items:
+            btn = self._make_nav_button(icon, label)
+            btn.clicked.connect(lambda _checked, i=index: self.navigate_to(i))
+            self.nav_group.addButton(btn, index)
+            layout.addWidget(btn)
+
+        layout.addStretch()
+
+        # Pied de sidebar : signature discrète
+        sign = QLabel("© 2025\nGOUNOU N'GOBI C. Z.")
+        sign.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 8pt; padding: 8px;")
+        layout.addWidget(sign)
+
+        # Activer le premier item
+        self.nav_group.button(0).setChecked(True)
+        return sidebar
+
+    def _make_nav_button(self, icon: str, label: str) -> QPushButton:
+        """Bouton de navigation latérale, checkable, au style premium."""
+        btn = QPushButton(f"  {icon}   {label}")
+        btn.setCheckable(True)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setMinimumHeight(42)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                text-align: left;
+                padding: 8px 14px;
+                border: none;
+                border-radius: {T.RADIUS_SM}px;
+                background-color: transparent;
+                color: {T.TEXT_SECONDARY};
+                font-size: 10pt;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {T.BG_SUBTLE};
+                color: {T.TEXT_PRIMARY};
+            }}
+            QPushButton:checked {{
+                background-color: {T.ACCENT_SOFT};
+                color: {T.ACCENT};
+                font-weight: 700;
+            }}
+        """)
+        return btn
+
+    def navigate_to(self, index: int):
+        """Change de page et synchronise la sidebar."""
+        self.pages.setCurrentIndex(index)
+        btn = self.nav_group.button(index)
+        if btn and not btn.isChecked():
+            btn.setChecked(True)
+
+    def create_compilation_tab(self) -> QWidget:
+        """Page de compilation : contenu scrollable + barre d'actions fixe."""
         tab = QWidget()
         tab_layout = QVBoxLayout(tab)
         tab_layout.setContentsMargins(0, 0, 0, 0)
         tab_layout.setSpacing(0)
 
-        # Créer une zone scrollable pour le contenu
+        # Zone scrollable (pas de défilement horizontal : le contenu s'adapte)
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setStyleSheet("QScrollArea { background: transparent; }")
 
-        # Widget de contenu scrollable
         scroll_content = QWidget()
         layout = QVBoxLayout(scroll_content)
-        layout.setSpacing(10)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(T.SPACE_MD)
+        layout.setContentsMargins(0, 0, T.SPACE_SM, 0)
 
-        # Widget sélection fichiers
         self.file_selector = FileSelectorWidget()
         layout.addWidget(self.file_selector)
 
-        # Widget options
         self.options_widget = OptionsWidget()
         layout.addWidget(self.options_widget)
 
-        # Widget progression (caché par défaut)
         self.progress_widget = ProgressWidget()
         layout.addWidget(self.progress_widget)
 
-        # Bouton compiler (fixe en bas, pas dans le scroll)
         layout.addStretch()
-
-        # Ajouter le contenu à la zone scrollable
         scroll_area.setWidget(scroll_content)
-        tab_layout.addWidget(scroll_area)
+        tab_layout.addWidget(scroll_area, stretch=1)
 
-        # Zone fixe en bas pour le bouton compiler
-        button_container = QWidget()
-        button_container.setStyleSheet("background-color: white;")
+        # Barre d'actions fixe (carte détachée par une bordure haute)
+        button_container = QFrame()
+        button_container.setStyleSheet(
+            f"QFrame {{ background-color: {T.BG_SURFACE}; "
+            f"border-top: 1px solid {T.BORDER}; border-radius: 0px; }}"
+        )
         button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(10, 10, 10, 10)
+        button_layout.setContentsMargins(T.SPACE_MD, T.SPACE_MD, T.SPACE_MD, T.SPACE_MD)
+        button_layout.setSpacing(T.SPACE_MD)
         button_layout.addStretch()
 
-        # Bouton aperçu de la détection (vérification avant compilation)
-        self.button_preview = QPushButton("👁  Aperçu")
-        self.button_preview.setFont(QFont("Segoe UI", 11))
-        self.button_preview.setMinimumSize(130, 50)
-        self.button_preview.setStyleSheet(f"""
-            QPushButton {{
-                background-color: white;
-                color: {EXCEL_GREEN};
-                border: 2px solid {EXCEL_GREEN};
-                border-radius: 8px;
-                padding: 10px 16px;
-            }}
-            QPushButton:hover {{
-                background-color: #eef7f1;
-            }}
-            QPushButton:disabled {{
-                background-color: #f5f5f5;
-                color: #aaaaaa;
-                border-color: #cccccc;
-            }}
-        """)
+        # Bouton aperçu (variante accent-outline, style hérité du QSS global)
+        self.button_preview = QPushButton("👁   Aperçu")
+        self.button_preview.setProperty("variant", "accent")
+        self.button_preview.setMinimumSize(140, 48)
+        self.button_preview.setCursor(Qt.CursorShape.PointingHandCursor)
         self.button_preview.clicked.connect(self.show_detection_preview)
         button_layout.addWidget(self.button_preview)
 
-        self.button_compile = QPushButton("▶️  COMPILER")
-        self.button_compile.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        self.button_compile.setMinimumSize(200, 50)
-        self.button_compile.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {EXCEL_GREEN};
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 10px 20px;
-            }}
-            QPushButton:hover {{
-                background-color: #1a5c37;
-            }}
-            QPushButton:pressed {{
-                background-color: #14462a;
-            }}
-            QPushButton:disabled {{
-                background-color: #cccccc;
-                color: #666666;
-            }}
-        """)
+        # Bouton compiler (variante primaire)
+        self.button_compile = QPushButton("▶   COMPILER")
+        self.button_compile.setProperty("variant", "primary")
+        self.button_compile.setFont(QFont(T.FONT_FAMILY, 12, QFont.Weight.Bold))
+        self.button_compile.setMinimumSize(210, 48)
+        self.button_compile.setCursor(Qt.CursorShape.PointingHandCursor)
         self.button_compile.clicked.connect(self.start_compilation)
-
         button_layout.addWidget(self.button_compile)
-        button_layout.addStretch()
 
         tab_layout.addWidget(button_container)
-
         return tab
 
     def create_results_tab(self) -> QWidget:
