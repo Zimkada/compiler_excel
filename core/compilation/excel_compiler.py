@@ -316,20 +316,53 @@ class ExcelCompiler:
 
     def _flatten_headers(self, header_rows: List[List]) -> List[str]:
         """Fusionne d'éventuelles lignes d'en-tête multiples en une liste
-        de libellés (séparateur ' - '), pour affichage."""
+        de libellés uniques (séparateur ' - ').
+
+        Concatène, colonne par colonne, les valeurs non vides de chaque ligne
+        d'en-tête. Les valeurs vides/NaN sont ignorées et les parts identiques
+        consécutives dédupliquées : une fusion verticale recopiée (« DEP » sur
+        deux lignes) reste « DEP », pas « DEP - DEP ». Utilisé pour l'aperçu et
+        pour la sortie compilée (mêmes libellés des deux côtés).
+        """
         if not header_rows:
             return []
-        if len(header_rows) == 1:
-            return [str(h) for h in header_rows[0]]
-        col_count = max(len(r) for r in header_rows)
+        col_count = max((len(r) for r in header_rows), default=0)
         flat = []
         for col in range(col_count):
             parts = []
             for row in header_rows:
-                if col < len(row) and row[col]:
-                    parts.append(str(row[col]))
+                if col >= len(row):
+                    continue
+                val = row[col]
+                if val is None or (isinstance(val, float) and pd.isna(val)):
+                    continue
+                text = str(val).strip()
+                if not text or text.lower() == 'nan':
+                    continue
+                # Dédupliquer une part identique à la précédente (fusion recopiée).
+                if parts and parts[-1] == text:
+                    continue
+                parts.append(text)
             flat.append(" - ".join(parts))
         return flat
+
+    def _collect_headers(self, df: pd.DataFrame, header_start_row: int,
+                         header_rows: int) -> List[List]:
+        """Extrait les lignes d'en-tête du DataFrame, puis les aplatit en une
+        unique ligne si l'option flatten_multiindex_headers est active.
+
+        Renvoie toujours une liste de lignes (le reste du moteur attend
+        ``headers[-1]`` et ``extend(headers)``) : une seule ligne aplatie quand
+        l'option est active, les lignes brutes sinon. Point d'extraction unique
+        partagé par Excel et CSV/TSV — garantit des en-têtes identiques partout.
+        """
+        rows = []
+        for row_idx in range(header_start_row - 1, header_start_row - 1 + header_rows):
+            if 0 <= row_idx < len(df):
+                rows.append(df.iloc[row_idx].tolist())
+        if self.options.flatten_multiindex_headers and len(rows) > 1:
+            return [self._flatten_headers(rows)]
+        return rows
 
     def _detect_structures(self, file_paths: List[str],
                           result: CompilationResult) -> Dict[str, DetectionResult]:
@@ -619,12 +652,8 @@ class ExcelCompiler:
         df = self._read_excel_df(file_path)
         df, _ = prune_phantom_columns(df)
 
-        # Extraire les en-têtes
-        headers = []
-        for row_idx in range(header_start_row - 1, header_start_row - 1 + header_rows):
-            if row_idx < len(df):
-                header_row = df.iloc[row_idx].tolist()
-                headers.append(header_row)
+        # Extraire les en-têtes (aplatis en une ligne si l'option est active).
+        headers = self._collect_headers(df, header_start_row, header_rows)
 
         # Extraire les données
         data = []
@@ -682,12 +711,8 @@ class ExcelCompiler:
         data_start_row = detection_info['data_start_row']
         data_end_row = detection_info['data_end_row'] or None
 
-        # Extraire les en-têtes
-        headers = []
-        for row_idx in range(header_start_row - 1, header_start_row - 1 + header_rows):
-            if row_idx < len(df):
-                header_row = df.iloc[row_idx].tolist()
-                headers.append(header_row)
+        # Extraire les en-têtes (aplatis en une ligne si l'option est active).
+        headers = self._collect_headers(df, header_start_row, header_rows)
 
         # Extraire les données
         data = []

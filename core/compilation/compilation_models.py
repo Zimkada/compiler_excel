@@ -80,6 +80,14 @@ class CompilationOptions:
     # désactivable si l'utilisateur préfère le comportement brut de pandas.
     unmerge_cells: bool = True
 
+    # Aplatissement des en-têtes multi-lignes (v3.2) — quand l'en-tête s'étend
+    # sur plusieurs lignes (catégorie + sous-catégorie, ex. « NOMBRE DE CAS »
+    # au-dessus de « 1er cycle » / « 2nd cycle »), les fusionne en un seul
+    # libellé par colonne (« NOMBRE DE CAS - 1er cycle »). Produit une unique
+    # ligne d'en-tête propre en sortie. Désactivable pour garder les lignes
+    # d'en-tête brutes telles quelles.
+    flatten_multiindex_headers: bool = True
+
     # Options de performance
     enable_chunked_processing: bool = True
     chunk_size: int = 10000
@@ -107,6 +115,7 @@ class CompilationOptions:
             'manual_header_rows': self.manual_header_rows,
             'manual_overrides': {k: list(v) for k, v in self.manual_overrides.items()},
             'unmerge_cells': self.unmerge_cells,
+            'flatten_multiindex_headers': self.flatten_multiindex_headers,
             'enable_chunked_processing': self.enable_chunked_processing,
             'chunk_size': self.chunk_size,
             'max_memory_percent': self.max_memory_percent
