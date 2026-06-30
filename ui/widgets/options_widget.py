@@ -26,7 +26,7 @@ class OptionsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
-        T.manager.theme_changed.connect(self.apply_theme)
+        T.get_manager().theme_changed.connect(self.apply_theme)
 
     def setup_ui(self):
         """Configure l'interface du widget"""

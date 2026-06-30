@@ -26,7 +26,7 @@ class ProgressWidget(QWidget):
         self._status_state = "idle"  # idle | success | error
         self.setup_ui()
         self.hide()  # Caché par défaut
-        T.manager.theme_changed.connect(self.apply_theme)
+        T.get_manager().theme_changed.connect(self.apply_theme)
 
     def setup_ui(self):
         """Configure l'interface du widget"""

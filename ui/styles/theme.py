@@ -169,7 +169,40 @@ class ThemeManager(QObject):
 
 
 # Instance partagée par toute l'application.
+#
+# ``ThemeManager`` est un QObject : si la QApplication qui « possédait » la
+# boucle Qt est détruite (typiquement entre deux modules d'une suite de tests
+# qui recréent QApplication), Qt peut supprimer l'objet C++ sous-jacent. Le
+# wrapper Python survit mais devient inutilisable (« wrapped C/C++ object …
+# has been deleted ») au prochain connect/emit. ``get_manager()`` détecte ce
+# cas et recrée un manager sain, de sorte que les widgets se connectent
+# toujours à une instance vivante. En production (une seule QApplication pour
+# toute la durée de vie), l'instance initiale n'est jamais recréée.
 manager = ThemeManager()
+
+
+def _manager_is_alive(obj) -> bool:
+    """True si le QObject C++ sous-jacent existe encore."""
+    if obj is None:
+        return False
+    try:
+        # Accès trivial : lève RuntimeError si l'objet C++ a été supprimé.
+        obj.signalsBlocked()
+        return True
+    except RuntimeError:
+        return False
+
+
+def get_manager() -> "ThemeManager":
+    """Retourne le ThemeManager partagé, recréé s'il a été détruit par Qt.
+
+    À utiliser partout au lieu d'accéder à ``manager`` directement : garantit
+    une instance vivante même après recréation de la QApplication (tests).
+    """
+    global manager
+    if not _manager_is_alive(manager):
+        manager = ThemeManager()
+    return manager
 
 
 def build_stylesheet() -> str:

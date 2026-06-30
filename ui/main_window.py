@@ -34,9 +34,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.compilation_worker = None
+        # Corrections manuelles d'en-tête par fichier, choisies dans l'aperçu
+        # et appliquées à la compilation. {chemin: (header_start_row, header_rows)}
+        self._manual_overrides = {}
         self.setup_ui()
         self.connect_signals()
-        T.manager.theme_changed.connect(self.apply_theme)
+        T.get_manager().theme_changed.connect(self.apply_theme)
 
     @staticmethod
     def _apply_soft_shadow(widget, blur=24, dy=4, alpha=28):
@@ -165,7 +168,7 @@ class MainWindow(QMainWindow):
         Sur le bandeau accent (header), le bouton reste translucide blanc dans
         les deux thèmes ; seule l'icône vectorielle (lune / soleil) change.
         """
-        is_dark = T.manager.is_dark()
+        is_dark = T.get_manager().is_dark()
         # Icône = action proposée : en clair on propose le sombre (lune), etc.
         icon = self._make_sun_icon() if is_dark else self._make_moon_icon()
         self.theme_toggle.setIcon(icon)
@@ -239,7 +242,7 @@ class MainWindow(QMainWindow):
 
     def toggle_theme(self):
         """Bascule entre thème clair et sombre et persiste le choix."""
-        mode = T.manager.toggle()
+        mode = T.get_manager().toggle()
         try:
             from PyQt6.QtCore import QSettings
             QSettings("GOUNOU N'GOBI Chabi Zimé", "ExcelCompiler").setValue("theme", mode)
@@ -575,11 +578,20 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Purger les overrides de fichiers qui ne sont plus sélectionnés.
+        self._manual_overrides = {
+            f: v for f, v in self._manual_overrides.items() if f in selected_files
+        }
+
         options = self.options_widget.get_compilation_options()
+        # Appliquer les corrections manuelles déjà choisies (priorité absolue).
+        options.manual_overrides = dict(self._manual_overrides)
+
         self.status_label.setText("Analyse de la détection en cours...")
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
         try:
-            previews = ExcelCompiler(options).preview_detection(selected_files)
+            compiler = ExcelCompiler(options)
+            previews = compiler.preview_detection(selected_files)
         except Exception as e:
             logger.error(f"Erreur aperçu détection: {e}", exc_info=True)
             QMessageBox.critical(
@@ -591,7 +603,13 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
             self.status_label.setText("Prêt")
 
-        PreviewDialog(previews, parent=self).exec()
+        # Le dialogue écrit les corrections dans options.manual_overrides ;
+        # on les récupère ensuite pour la compilation.
+        PreviewDialog(
+            previews, parent=self,
+            compiler=compiler, overrides=options.manual_overrides,
+        ).exec()
+        self._manual_overrides = dict(options.manual_overrides)
 
     def start_compilation(self):
         """Démarre la compilation"""
@@ -622,6 +640,13 @@ class MainWindow(QMainWindow):
         # Récupérer les options
         options = self.options_widget.get_compilation_options()
         output_format = self.options_widget.get_output_format()
+
+        # Appliquer les corrections manuelles d'en-tête choisies dans l'aperçu
+        # (priorité absolue sur la détection), en ne gardant que les fichiers
+        # toujours sélectionnés.
+        options.manual_overrides = {
+            f: v for f, v in self._manual_overrides.items() if f in selected_files
+        }
 
         logger.info(f"Démarrage compilation: {len(selected_files)} fichiers")
         logger.info(f"Fichier de sortie: {output_file}")

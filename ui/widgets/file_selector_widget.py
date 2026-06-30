@@ -34,7 +34,7 @@ class FileSelectorWidget(QWidget):
         self.all_files = []  # Tous les fichiers du dossier
         self.setup_ui()
         self.setAcceptDrops(True)  # Activer le glisser-déposer de fichiers
-        T.manager.theme_changed.connect(self.apply_theme)
+        T.get_manager().theme_changed.connect(self.apply_theme)
 
     def setup_ui(self):
         """Configure l'interface du widget"""
