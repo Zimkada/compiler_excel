@@ -5,7 +5,18 @@ Auteur: GOUNOU N'GOBI Chabi Zimé
 
 import sys
 import logging
+import warnings
 from pathlib import Path
+
+# openpyxl avertit qu'il ne sait pas relire les formes/dessins DrawingML d'un
+# .xlsx. On ne lit que les données des cellules : ce message est sans effet sur
+# la compilation. On le masque (ciblé) pour ne pas polluer la console utilisateur.
+warnings.filterwarnings(
+    "ignore",
+    message="DrawingML support is incomplete",
+    category=UserWarning,
+    module="openpyxl",
+)
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QIcon
@@ -47,8 +58,17 @@ def main():
     app.setApplicationVersion("3.2")
     app.setOrganizationName("GOUNOU N'GOBI Chabi Zimé")
 
-    # Appliquer le design system premium (feuille de style globale)
+    # Restaurer le thème mémorisé (clair par défaut) avant de styler l'UI
+    from PyQt6.QtCore import QSettings
     from ui.styles import build_stylesheet
+    from ui.styles import theme as T
+
+    saved_theme = QSettings(
+        "GOUNOU N'GOBI Chabi Zimé", "ExcelCompiler"
+    ).value("theme", "light")
+    T.set_theme(saved_theme if saved_theme in ("light", "dark") else "light")
+
+    # Appliquer le design system premium (feuille de style globale)
     app.setStyleSheet(build_stylesheet())
 
     # Définir l'icône de l'application (si disponible)
