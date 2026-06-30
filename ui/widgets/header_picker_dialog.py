@@ -49,7 +49,7 @@ class HeaderPickerDialog(QDialog):
         """Charge les premières lignes du fichier (tous formats supportés)."""
         try:
             ext = Path(self.file_path).suffix.lower()
-            if ext in ('.xlsx', '.xls', '.xlsm'):
+            if ext in ('.xlsx', '.xlsm'):
                 df = pd.read_excel(self.file_path, header=None, nrows=_MAX_PREVIEW_ROWS)
             elif ext == '.csv':
                 df = None

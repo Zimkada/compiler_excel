@@ -13,7 +13,9 @@ MAX_MEMORY_USAGE = 536870912  # 512 MB
 CHUNK_SIZE = 10000
 
 # Formats supportés
-SUPPORTED_INPUT_FORMATS = ['.xlsx', '.xls', '.csv', '.tsv', '.txt']
+# .xls (Excel 97-2003 binaire) retiré : non lisible sans xlrd et incompatible
+# avec la dé-fusion (lecture .xlsx/zip). Convertir en .xlsx au préalable.
+SUPPORTED_INPUT_FORMATS = ['.xlsx', '.xlsm', '.csv', '.tsv', '.txt']
 # Formats d'export réellement disponibles. parquet / json sont prévus (ROADMAP).
 SUPPORTED_OUTPUT_FORMATS = ['xlsx', 'csv', 'tsv']
 

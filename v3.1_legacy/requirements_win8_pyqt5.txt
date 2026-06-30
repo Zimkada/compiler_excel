@@ -1,0 +1,9 @@
+# Requirements pour Win8+ - Python 3.10 + PyQt5 + compatibilité maximale
+numpy==1.24.4
+pandas==2.0.3
+openpyxl==3.1.5
+xlsxwriter==3.2.5
+PyQt5==5.15.10
+psutil==7.0.0
+python-dateutil==2.8.2
+pyinstaller==4.10

@@ -1,0 +1,13 @@
+# Requirements ExcelCompiler v3.2 — Windows 10+ (PyQt6)
+# Cible recommandée : Python 3.11+ (testé aussi sur 3.13).
+#
+# xlsxwriter et psutil ont été retirés : non utilisés par l'application
+# modulaire (la sortie .xlsx passe par openpyxl ; aucun monitoring psutil).
+# PyInstaller passé en >=6.10 : la 5.x ne supporte pas Python 3.13 et le
+# packaging actuel (hook PyQt6 automatique) requiert la branche 6.x.
+numpy==2.2.6
+pandas==2.3.0
+openpyxl==3.1.5
+PyQt6==6.9.1
+python-dateutil==2.9.0.post0
+pyinstaller>=6.10

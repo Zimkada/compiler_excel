@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QMessageBox, QTextBrowser, QLabel,
     QStackedWidget, QFrame, QScrollArea, QButtonGroup,
-    QGraphicsDropShadowEffect
+    QGraphicsDropShadowEffect, QScroller
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
@@ -21,7 +21,7 @@ from ui.widgets import (
 )
 from ui.workers import CompilationWorker
 from ui.styles import theme as T
-from utils import logger
+from utils import logger, resource_path
 
 
 class MainWindow(QMainWindow):
@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
         logo = QLabel()
         logo.setFixedSize(48, 48)
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_path = Path("icon.ico")
+        logo_path = resource_path("icon.ico")
         logo_pixmap = QPixmap(str(logo_path)) if logo_path.exists() else QPixmap()
         if not logo_pixmap.isNull():
             logo.setPixmap(logo_pixmap.scaled(
@@ -279,7 +279,7 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
         # Pied de sidebar : signature discrète
-        self._sidebar_sign = QLabel("© 2025\nGOUNOU N'GOBI C. Z.")
+        self._sidebar_sign = QLabel("© 2026\nGOUNOU N'GOBI C. Z.")
         layout.addWidget(self._sidebar_sign)
 
         # Activer le premier item
@@ -366,7 +366,29 @@ class MainWindow(QMainWindow):
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setStyleSheet("QScrollArea { background: transparent; }")
+        scroll_area.setStyleSheet(f"""
+            QScrollArea {{ background: transparent; }}
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 10px;
+                margin: 2px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {T.BORDER_STRONG};
+                border-radius: 5px;
+                min-height: 30px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {T.TEXT_MUTED};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0;
+            }}
+        """)
+        # Active le défilement tactile (glisser-déposer au doigt) sur le viewport
+        QScroller.grabGesture(
+            scroll_area.viewport(), QScroller.ScrollerGestureType.TouchGesture
+        )
 
         scroll_content = QWidget()
         layout = QVBoxLayout(scroll_content)
@@ -476,7 +498,7 @@ class MainWindow(QMainWindow):
 
         <h3>Fonctionnalités</h3>
         <ul>
-            <li>Compilation de fichiers Excel (.xlsx, .xls, .xlsm)</li>
+            <li>Compilation de fichiers Excel (.xlsx, .xlsm)</li>
             <li>Support CSV et TSV</li>
             <li>Détection par fichier de référence ou configuration manuelle</li>
             <li>Gestion des en-têtes multi-lignes</li>
@@ -494,7 +516,7 @@ class MainWindow(QMainWindow):
 
         <hr>
         <p style='text-align: center; color: {T.TEXT_MUTED};'>
-        © 2025 GOUNOU N'GOBI Chabi Zimé - Tous droits réservés
+        © 2026 GOUNOU N'GOBI Chabi Zimé - Tous droits réservés
         </p>
         """)
 
@@ -784,7 +806,17 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 self.compilation_worker.cancel()
-                self.compilation_worker.wait()
+                # Attendre la fin proprement, AVEC un délai borné: ne jamais
+                # figer indéfiniment la fermeture si le worker est bloqué dans
+                # une lecture longue (l'annulation est vérifiée entre étapes,
+                # pas pendant une lecture I/O d'openpyxl). On ne tue PAS le
+                # thread (terminate() corromprait un fichier en cours d'écriture)
+                # — au pire le worker se terminera seul en arrière-plan.
+                if not self.compilation_worker.wait(5000):
+                    logger.warning(
+                        "Worker toujours actif après 5s; fermeture sans attendre "
+                        "davantage (le thread se terminera de lui-même)."
+                    )
                 event.accept()
             else:
                 event.ignore()

@@ -164,7 +164,7 @@ class HybridDetector(BaseDetector):
 
         # 1. BorderDetector (seulement pour fichiers Excel)
         ext = Path(file_path).suffix.lower()
-        if ext in ['.xlsx', '.xls', '.xlsm']:
+        if ext in ['.xlsx', '.xlsm']:
             try:
                 border_result = self.border_detector.detect(file_path, df)
                 if border_result.confidence > 0:

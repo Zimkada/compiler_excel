@@ -58,7 +58,7 @@ class BorderDetector(BaseDetector):
         ext = Path(file_path).suffix.lower()
 
         # Vérifier que c'est un fichier Excel (pas CSV)
-        if ext not in ['.xlsx', '.xls', '.xlsm']:
+        if ext not in ['.xlsx', '.xlsm']:
             return self._create_failed_result(
                 file_path,
                 "BorderDetector nécessite un fichier Excel (.xlsx, .xls, .xlsm)"
