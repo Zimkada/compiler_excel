@@ -15,6 +15,7 @@ def prune_phantom_columns(
     df: pd.DataFrame,
     min_abs: int = 3,
     ratio: float = 0.05,
+    dense_ratio: float = 0.5,
 ) -> Tuple[pd.DataFrame, int]:
     """Élague les colonnes parasites en fin de tableau.
 
@@ -26,6 +27,13 @@ def prune_phantom_columns(
     qui suit. Les colonnes réelles étant contiguës à gauche, cette coupe en
     fin de tableau est sûre : elle n'ampute jamais de vraies données.
 
+    Garde-fou petits tableaux : le plancher absolu ``min_abs`` est pensé pour
+    de gros fichiers. Sur un petit échantillon, une colonne légitime mais peu
+    remplie (ex. 1 valeur + 1 ligne de total vide) pourrait passer sous ce
+    plancher et être coupée à tort. On considère donc aussi « substantielle »
+    toute colonne dont la densité atteint ``dense_ratio`` (50 % par défaut) :
+    une vraie colonne fantôme est quasi vide, jamais à moitié remplie.
+
     Returns:
         (df_élagué, nb_colonnes_coupées). Si rien n'est à couper, retourne le
         df d'origine et 0.
@@ -35,12 +43,14 @@ def prune_phantom_columns(
         return df, 0
 
     threshold = max(min_abs, int(n_rows * ratio))
+    dense_threshold = n_rows * dense_ratio
     filled_per_col = df.notna().sum(axis=0)
 
-    # Indices positionnels des colonnes substantielles.
+    # Indices positionnels des colonnes substantielles : soit elles dépassent
+    # le seuil absolu, soit elles sont suffisamment denses (petits tableaux).
     substantial = [
         pos for pos, count in enumerate(filled_per_col.tolist())
-        if count >= threshold
+        if count >= threshold or count >= dense_threshold
     ]
     if not substantial:
         return df, 0  # rien de fiable : on ne touche pas

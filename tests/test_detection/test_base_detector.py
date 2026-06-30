@@ -173,3 +173,62 @@ class TestBaseDetector:
         assert 'Informations - Nom' in headers[0]
         assert 'Informations - Prénom' in headers[1]
         assert 'Détails - Age' in headers[2]
+
+
+class TestPrunePhantomColumns:
+    """Tests de l'élagage des colonnes parasites en fin de tableau."""
+
+    def test_small_table_sparse_column_preserved(self):
+        """Régression : une colonne légitime peu remplie sur un petit tableau
+        (1 valeur + 1 ligne de total vide) ne doit PAS être coupée comme
+        fantôme. C'est le bug révélé par l'audit de l'étape 6."""
+        import pandas as pd
+        from core.detection.base_detector import prune_phantom_columns
+
+        df = pd.DataFrame([
+            ['Region', 'Sexe'],
+            ['Nord', 'M'],
+            ['ENSEMBLE COMMUNE', None],   # ligne de total : Sexe vide
+        ])
+        pruned, removed = prune_phantom_columns(df)
+        assert removed == 0
+        assert pruned.shape[1] == 2
+
+    def test_phantom_columns_still_pruned(self):
+        """Non-régression : de vraies colonnes fantômes (quasi vides) restent
+        coupées, même quand une cellule isolée s'y est égarée."""
+        import pandas as pd
+        from core.detection.base_detector import prune_phantom_columns
+
+        data = [[f'v{i}', i] + [None] * 50 for i in range(100)]
+        data[0][10] = 'x'                 # cellule égarée dans une fantôme
+        df = pd.DataFrame(data)
+        pruned, removed = prune_phantom_columns(df)
+        assert pruned.shape[1] == 2
+        assert removed == 50
+
+    def test_sparse_column_on_large_table_pruned(self):
+        """Sur un grand tableau, une colonne finale vraiment creuse (< densité
+        et < ratio) est bien coupée — le garde-fou petits tableaux ne la
+        protège pas."""
+        import pandas as pd
+        from core.detection.base_detector import prune_phantom_columns
+
+        data = [[f'v{i}', i, None] for i in range(100)]
+        data[5][2] = 'egaree'
+        df = pd.DataFrame(data)
+        pruned, removed = prune_phantom_columns(df)
+        assert removed == 1
+        assert pruned.shape[1] == 2
+
+    def test_half_filled_column_kept(self):
+        """Une colonne à 50 % de densité sur petit tableau est conservée
+        (une fantôme est quasi vide, jamais à moitié remplie)."""
+        import pandas as pd
+        from core.detection.base_detector import prune_phantom_columns
+
+        df = pd.DataFrame([
+            ['A', 'x'], ['B', None], ['C', 'y'], ['D', None],
+        ])
+        pruned, removed = prune_phantom_columns(df)
+        assert removed == 0
