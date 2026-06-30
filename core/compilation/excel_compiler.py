@@ -30,7 +30,7 @@ from .subtotal_detector import (
 )
 from .column_aligner import ColumnAligner
 from .excel_formatter import ExcelFormatter
-from utils import logger
+from utils import logger, get_file_size_mb
 
 
 class CompilationCancelled(Exception):
@@ -72,6 +72,10 @@ class ExcelCompiler:
         # Callbacks de progression / annulation (définis par compile_files)
         self._progress_callback: Optional[Callable[[int, str], None]] = None
         self._cancel_check: Optional[Callable[[], bool]] = None
+
+        # Avertissements de troncature (garde-fou mémoire) accumulés pendant la
+        # lecture, drainés vers result.warnings (transparence : jamais silencieux).
+        self._cap_warnings: List[str] = []
 
         # Détecteur de structure selon le mode choisi
         self.detector: Optional[HybridDetector] = None
@@ -255,7 +259,7 @@ class ExcelCompiler:
             # On élague les colonnes parasites comme la compilation réelle, pour
             # que l'aperçu reflète fidèlement ce qui sera produit.
             ext = Path(file_path).suffix.lower()
-            if ext in ['.xlsx', '.xls', '.xlsm']:
+            if ext in ['.xlsx', '.xlsm']:
                 df = self._read_excel_df(file_path)
                 df, _ = prune_phantom_columns(df)
             elif ext == '.csv':
@@ -274,7 +278,7 @@ class ExcelCompiler:
                 return FilePreview(file_path=file_path, success=False,
                                    error=f"Format non supporté: {ext}")
 
-            if ext != '.xlsx' and ext != '.xls' and ext != '.xlsm':
+            if ext != '.xlsx' and ext != '.xlsm':
                 df, _ = prune_phantom_columns(df)
 
             n = len(df)
@@ -578,6 +582,11 @@ class ExcelCompiler:
                         f"{Path(file_path).name}: {n_sub} ligne(s) de total {action}"
                     )
 
+            except CompilationCancelled:
+                # L'annulation (déclenchée pendant l'extraction d'un gros
+                # fichier) ne doit PAS être traitée comme une erreur de fichier:
+                # on la laisse remonter au handler dédié de compile_files.
+                raise
             except Exception as e:
                 self.logger.error(f"Erreur traitement {file_path}: {e}")
                 file_result = FileCompilationResult(
@@ -608,6 +617,12 @@ class ExcelCompiler:
         # Ajouter les informations préliminaires au début si demandées
         if preliminary_info and combined_data:
             combined_data = preliminary_info + combined_data
+
+        # Remonter les avertissements de troncature mémoire à l'utilisateur
+        # (transparence : la troncature altère les données, jamais silencieuse).
+        if self._cap_warnings:
+            result.warnings.extend(self._cap_warnings)
+            self._cap_warnings = []
 
         return combined_data, global_headers if global_headers else []
 
@@ -670,8 +685,10 @@ class ExcelCompiler:
         son absence) est appliquée de façon identique partout.
         """
         if self.options.unmerge_cells:
-            return load_with_unmerge(file_path)
-        return pd.read_excel(file_path, header=None)
+            df = load_with_unmerge(file_path)
+        else:
+            df = pd.read_excel(file_path, header=None)
+        return self._enforce_row_cap(df, file_path)
 
     def _load_single_file(self, file_path: str,
                          detection: Optional[DetectionResult],
@@ -687,18 +704,62 @@ class ExcelCompiler:
         Returns:
             Tuple (data, headers, detection_info_dict)
         """
+        # Garde-fou de sécurité : rejeter les fichiers trop volumineux AVANT
+        # toute lecture (évite de charger en mémoire un fichier piégé ou
+        # démesuré). L'exception remonte au try/except appelant qui marque ce
+        # fichier en échec sans interrompre les autres.
+        self._validate_file_size(file_path)
+
         ext = Path(file_path).suffix.lower()
 
         # Charger selon le format
-        if ext in ['.xlsx', '.xls', '.xlsm']:
+        if ext in ['.xlsx', '.xlsm']:
             return self._load_excel_file(file_path, detection, include_preliminary)
         elif ext == '.csv':
             return self._load_csv_file(file_path, detection, include_preliminary)
         elif ext in ['.tsv', '.txt']:
             return self._load_tsv_file(file_path, detection, include_preliminary)
         else:
-            self.logger.warning(f"Format non supporté: {ext}")
-            return None, [], {}
+            # Message explicite (l'ancien « Erreur chargement fichier »
+            # générique n'aidait pas l'utilisateur). Cas typique : un .xls
+            # (Excel 97-2003), à convertir en .xlsx. L'exception est captée par
+            # la boucle appelante -> ce fichier est marqué en échec, les autres
+            # continuent.
+            hint = " (convertir en .xlsx)" if ext == '.xls' else ""
+            raise ValueError(f"Format non supporté : {ext}{hint}")
+
+    def _validate_file_size(self, file_path: str) -> None:
+        """Vérifie que le fichier ne dépasse pas la limite de taille configurée.
+
+        Garde-fou réellement appliqué (contrairement aux constantes historiques
+        qui n'étaient jamais vérifiées). ``max_file_size_mb <= 0`` désactive la
+        limite. Lève ``ValueError`` avec un message clair, capté par l'appelant.
+        """
+        limit_mb = self.options.max_file_size_mb
+        if not limit_mb or limit_mb <= 0:
+            return
+        try:
+            size_mb = get_file_size_mb(file_path)
+        except OSError as e:
+            raise ValueError(f"Fichier inaccessible : {e}") from e
+        if size_mb > limit_mb:
+            raise ValueError(
+                f"Fichier trop volumineux : {size_mb:.1f} Mo "
+                f"(limite {limit_mb:.0f} Mo)"
+            )
+
+    def _enforce_row_cap(self, df: pd.DataFrame, file_path: str) -> pd.DataFrame:
+        """Borne le nombre de lignes lues pour neutraliser les fichiers aux
+        dimensions gonflées (anti-explosion mémoire). ``max_rows_per_file <= 0``
+        désactive la borne. Tronque et avertit (jamais d'échec silencieux)."""
+        cap = self.options.max_rows_per_file
+        if not cap or cap <= 0 or len(df) <= cap:
+            return df
+        msg = (f"{Path(file_path).name}: {len(df)} lignes tronquées à {cap} "
+               f"(garde-fou mémoire)")
+        self.logger.warning(msg)
+        self._cap_warnings.append(msg)
+        return df.iloc[:cap]
 
     def _load_excel_file(self, file_path: str,
                         detection: Optional[DetectionResult],
@@ -758,7 +819,14 @@ class ExcelCompiler:
 
         data: List[List] = []
         n_subtotal = 0
-        for row_idx in range(start_idx, end_idx):
+        for loop_i, row_idx in enumerate(range(start_idx, end_idx)):
+            # Annulation réactive sur les gros fichiers déjà chargés : on
+            # vérifie périodiquement (tous les 2000 lignes) sans pénaliser le
+            # cas courant. NB : l'annulation pendant la LECTURE I/O d'un fichier
+            # (openpyxl) reste impossible — limite connue, à lever via lecture
+            # en streaming (backlog perf).
+            if loop_i % 2000 == 0:
+                self._check_cancel()
             if row_idx >= len(df):
                 continue
             row = df.iloc[row_idx].tolist()
@@ -814,6 +882,8 @@ class ExcelCompiler:
                                     detection: Optional[DetectionResult],
                                     include_preliminary: bool) -> Tuple[List, List, Dict]:
         """Extrait données et en-têtes d'un DataFrame (logique commune CSV/TSV/Excel)"""
+        # Garde-fou mémoire (CSV/TSV peuvent aussi être démesurés).
+        df = self._enforce_row_cap(df, file_path)
         # Cohérence avec la détection : élaguer d'éventuelles colonnes parasites.
         df, _ = prune_phantom_columns(df)
 
@@ -919,7 +989,7 @@ class ExcelCompiler:
             ext = Path(source_file).suffix.lower()
 
             # Charger le fichier (dé-fusion si activée, comme le reste)
-            if ext in ['.xlsx', '.xls', '.xlsm']:
+            if ext in ['.xlsx', '.xlsm']:
                 df = self._read_excel_df(source_file)
             elif ext == '.csv':
                 # Essayer différents encodages

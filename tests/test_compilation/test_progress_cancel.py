@@ -105,6 +105,31 @@ class TestCancellation:
         assert result.cancelled is True
         assert not out.exists()
 
+    def test_cancel_inside_single_large_file(self, tmp_path):
+        """Annulation honorée PENDANT l'extraction d'un fichier unique
+        volumineux (le check est désormais intra-boucle, plus seulement entre
+        fichiers). Sans ce comportement, un gros fichier unique ignorerait
+        l'annulation jusqu'à sa fin."""
+        # Un seul fichier de >2000 lignes (seuil du check intra-fichier).
+        rows = [["Nom", "Age"]] + [[f"N{i}", i] for i in range(5000)]
+        p = tmp_path / "big.xlsx"
+        _make_xlsx(p, rows)
+
+        # Annule seulement après plusieurs vérifications -> oblige à atteindre
+        # le check situé À L'INTÉRIEUR de la boucle d'extraction.
+        state = {"n": 0}
+
+        def cancel():
+            state["n"] += 1
+            return state["n"] > 1
+
+        out = tmp_path / "out.xlsx"
+        result = ExcelCompiler(_options()).compile_files(
+            [str(p)], str(out), OutputFormat.XLSX, cancel_check=cancel,
+        )
+        assert result.cancelled is True
+        assert not out.exists()
+
 
 class TestCallbackHygiene:
     def test_callbacks_do_not_leak_between_runs(self, tmp_path):

@@ -119,10 +119,14 @@ class CompilationOptions:
     # accents ni casse (comme l'alignement). Vide par défaut = aucun alias.
     column_aliases: Dict[str, str] = field(default_factory=dict)
 
-    # Options de performance
-    enable_chunked_processing: bool = True
-    chunk_size: int = 10000
-    max_memory_percent: float = 80.0
+    # Garde-fous de sécurité (v3.2) — réellement appliqués au chargement.
+    # max_file_size_mb : un fichier plus volumineux est rejeté proprement
+    #   (le fichier est marqué en échec, les autres continuent). 0 = sans limite.
+    # max_rows_per_file : borne le nombre de lignes lues d'un fichier pour
+    #   neutraliser les .xlsx aux dimensions gonflées (anti-explosion mémoire).
+    #   0 = sans limite. Voir aussi le plafond colonnes du merge_handler.
+    max_file_size_mb: float = 100.0
+    max_rows_per_file: int = 1_000_000
 
     def to_dict(self) -> Dict[str, Any]:
         """Convertit en dictionnaire"""
@@ -154,9 +158,8 @@ class CompilationOptions:
             'total_keywords': self.total_keywords,
             'align_columns_by_label': self.align_columns_by_label,
             'column_aliases': dict(self.column_aliases),
-            'enable_chunked_processing': self.enable_chunked_processing,
-            'chunk_size': self.chunk_size,
-            'max_memory_percent': self.max_memory_percent
+            'max_file_size_mb': self.max_file_size_mb,
+            'max_rows_per_file': self.max_rows_per_file
         }
 
 
