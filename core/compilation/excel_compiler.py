@@ -23,6 +23,7 @@ from .compilation_models import (
 )
 from ..detection import HybridDetector, ReferenceDetector, DetectionResult
 from ..detection.base_detector import prune_phantom_columns
+from .merge_handler import load_with_unmerge
 from .excel_formatter import ExcelFormatter
 from utils import logger
 
@@ -250,7 +251,7 @@ class ExcelCompiler:
             # que l'aperçu reflète fidèlement ce qui sera produit.
             ext = Path(file_path).suffix.lower()
             if ext in ['.xlsx', '.xls', '.xlsm']:
-                df = pd.read_excel(file_path, header=None)
+                df = self._read_excel_df(file_path)
                 df, _ = prune_phantom_columns(df)
             elif ext == '.csv':
                 df = None
@@ -552,6 +553,18 @@ class ExcelCompiler:
             'detection_method': 'manual',
         }
 
+    def _read_excel_df(self, file_path: str) -> pd.DataFrame:
+        """Lit un fichier Excel en DataFrame brut (header=None), en propageant
+        les cellules fusionnées si l'option est active.
+
+        Point d'entrée UNIQUE de lecture Excel, utilisé par la compilation,
+        l'aperçu et le chargement préliminaire — garantit que la dé-fusion (ou
+        son absence) est appliquée de façon identique partout.
+        """
+        if self.options.unmerge_cells:
+            return load_with_unmerge(file_path)
+        return pd.read_excel(file_path, header=None)
+
     def _load_single_file(self, file_path: str,
                          detection: Optional[DetectionResult],
                          include_preliminary: bool = False) -> Tuple[Optional[List], List, Dict]:
@@ -600,10 +613,10 @@ class ExcelCompiler:
         data_start_row = detection_info['data_start_row']
         data_end_row = detection_info['data_end_row'] or None
 
-        # Charger avec pandas (et élaguer les colonnes parasites pour rester
-        # cohérent avec la détection — sinon l'export traînerait des milliers
-        # de colonnes vides).
-        df = pd.read_excel(file_path, header=None)
+        # Charger (avec dé-fusion si activée) et élaguer les colonnes parasites
+        # pour rester cohérent avec la détection — sinon l'export traînerait des
+        # milliers de colonnes vides.
+        df = self._read_excel_df(file_path)
         df, _ = prune_phantom_columns(df)
 
         # Extraire les en-têtes
@@ -776,9 +789,9 @@ class ExcelCompiler:
         try:
             ext = Path(source_file).suffix.lower()
 
-            # Charger le fichier
+            # Charger le fichier (dé-fusion si activée, comme le reste)
             if ext in ['.xlsx', '.xls', '.xlsm']:
-                df = pd.read_excel(source_file, header=None)
+                df = self._read_excel_df(source_file)
             elif ext == '.csv':
                 # Essayer différents encodages
                 df = None

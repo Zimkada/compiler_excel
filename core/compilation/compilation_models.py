@@ -74,6 +74,12 @@ class CompilationOptions:
     # {chemin_fichier: (header_start_row, header_rows)} (lignes 1-based)
     manual_overrides: Dict[str, Tuple[int, int]] = field(default_factory=dict)
 
+    # Dé-fusion des cellules fusionnées (v3.2) — propage la valeur d'une
+    # cellule fusionnée sur toute sa plage (ex. un département fusionné
+    # verticalement est recopié sur chaque ligne). Traitement déterministe ;
+    # désactivable si l'utilisateur préfère le comportement brut de pandas.
+    unmerge_cells: bool = True
+
     # Options de performance
     enable_chunked_processing: bool = True
     chunk_size: int = 10000
@@ -100,6 +106,7 @@ class CompilationOptions:
             'manual_header_start_row': self.manual_header_start_row,
             'manual_header_rows': self.manual_header_rows,
             'manual_overrides': {k: list(v) for k, v in self.manual_overrides.items()},
+            'unmerge_cells': self.unmerge_cells,
             'enable_chunked_processing': self.enable_chunked_processing,
             'chunk_size': self.chunk_size,
             'max_memory_percent': self.max_memory_percent
