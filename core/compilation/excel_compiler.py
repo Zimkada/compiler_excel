@@ -22,6 +22,7 @@ from .compilation_models import (
     OutputFormat
 )
 from ..detection import HybridDetector, ReferenceDetector, DetectionResult
+from ..detection.base_detector import prune_phantom_columns
 from .excel_formatter import ExcelFormatter
 from utils import logger
 
@@ -249,10 +250,13 @@ class ExcelCompiler:
                 method = "manual"
                 warning = None
 
-            # Lire le fichier pour extraire en-têtes et compter les données
+            # Lire le fichier pour extraire en-têtes et compter les données.
+            # On élague les colonnes parasites comme la compilation réelle, pour
+            # que l'aperçu reflète fidèlement ce qui sera produit.
             ext = Path(file_path).suffix.lower()
             if ext in ['.xlsx', '.xls', '.xlsm']:
                 df = pd.read_excel(file_path, header=None)
+                df, _ = prune_phantom_columns(df)
             elif ext == '.csv':
                 df = None
                 for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
@@ -268,6 +272,9 @@ class ExcelCompiler:
             else:
                 return FilePreview(file_path=file_path, success=False,
                                    error=f"Format non supporté: {ext}")
+
+            if ext != '.xlsx' and ext != '.xls' and ext != '.xlsm':
+                df, _ = prune_phantom_columns(df)
 
             n = len(df)
             # En-têtes (fusion multi-lignes via le helper du détecteur de base)
@@ -575,8 +582,11 @@ class ExcelCompiler:
                 'detection_method': 'manual'
             }
 
-        # Charger avec pandas
+        # Charger avec pandas (et élaguer les colonnes parasites pour rester
+        # cohérent avec la détection — sinon l'export traînerait des milliers
+        # de colonnes vides).
         df = pd.read_excel(file_path, header=None)
+        df, _ = prune_phantom_columns(df)
 
         # Extraire les en-têtes
         headers = []
@@ -630,6 +640,9 @@ class ExcelCompiler:
                                     detection: Optional[DetectionResult],
                                     include_preliminary: bool) -> Tuple[List, List, Dict]:
         """Extrait données et en-têtes d'un DataFrame (logique commune CSV/TSV/Excel)"""
+        # Cohérence avec la détection : élaguer d'éventuelles colonnes parasites.
+        df, _ = prune_phantom_columns(df)
+
         # Déterminer les paramètres de chargement
         if detection and detection.confidence >= self.options.detection_confidence_threshold:
             # Utiliser la détection

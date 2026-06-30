@@ -6,9 +6,51 @@ Version: 3.2
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
 import pandas as pd
+
+
+def prune_phantom_columns(
+    df: pd.DataFrame,
+    min_abs: int = 3,
+    ratio: float = 0.05,
+) -> Tuple[pd.DataFrame, int]:
+    """Élague les colonnes parasites en fin de tableau.
+
+    Certains fichiers Excel administratifs contiennent des milliers de colonnes
+    « fantômes » (cellules vides formatées laissées par le tableur). Elles
+    diluent la densité et font échouer la détection. On conserve les colonnes
+    jusqu'à la dernière colonne « substantielle » — celle qui possède au moins
+    ``max(min_abs, ratio * nb_lignes)`` cellules non vides — et on coupe tout ce
+    qui suit. Les colonnes réelles étant contiguës à gauche, cette coupe en
+    fin de tableau est sûre : elle n'ampute jamais de vraies données.
+
+    Returns:
+        (df_élagué, nb_colonnes_coupées). Si rien n'est à couper, retourne le
+        df d'origine et 0.
+    """
+    n_rows, n_cols = df.shape
+    if n_cols == 0 or n_rows == 0:
+        return df, 0
+
+    threshold = max(min_abs, int(n_rows * ratio))
+    filled_per_col = df.notna().sum(axis=0)
+
+    # Indices positionnels des colonnes substantielles.
+    substantial = [
+        pos for pos, count in enumerate(filled_per_col.tolist())
+        if count >= threshold
+    ]
+    if not substantial:
+        return df, 0  # rien de fiable : on ne touche pas
+
+    keep = max(substantial) + 1
+    if keep >= n_cols:
+        return df, 0  # aucune colonne parasite en fin
+
+    pruned = df.iloc[:, :keep]
+    return pruned, n_cols - keep
 
 
 @dataclass

@@ -195,11 +195,19 @@ class TestCrossValidationAdjustment:
 
     def test_batch_on_dissimilar_files_emits_no_warning(self):
         """Régression: des fichiers réels dissemblables mais correctement
-        détectés ne doivent produire aucun avertissement."""
+        détectés ne doivent produire aucun avertissement *de validation
+        croisée*. Le warning d'élagage de colonnes parasites est légitime
+        (il alerte l'utilisateur) et donc toléré ici."""
         detector = HybridDetector(enable_cross_validation=True)
         sample_dir = Path("tests/test_data/sample_files")
         files = [str(f) for f in sample_dir.glob("CEG*.xlsx")]
         if len(files) < 2:
             pytest.skip("Pas assez de fichiers réels")
         results = detector.detect_batch(files)
-        assert all(r.warning is None for r in results)
+        for r in results:
+            # Un éventuel warning ne doit provenir QUE de l'élagage de colonnes
+            # parasites, jamais de la validation croisée.
+            if r.warning is not None:
+                assert r.debug_info.get('pruned_phantom_columns'), (
+                    f"Warning inattendu (non lié à l'élagage): {r.warning!r}"
+                )

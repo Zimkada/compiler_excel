@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-from .base_detector import BaseDetector, DetectionResult
+from .base_detector import BaseDetector, DetectionResult, prune_phantom_columns
 from .border_detector import BorderDetector
 from .density_detector import DensityDetector
 from .pattern_detector import PatternDetector
@@ -69,6 +69,10 @@ class HybridDetector(BaseDetector):
             if df is None:
                 df = self.load_file(file_path)
 
+            # Élaguer les colonnes parasites (cellules vides formatées en fin de
+            # tableau). Sans cela, la densité est diluée et la détection échoue.
+            df, pruned_cols = prune_phantom_columns(df)
+
             # Exécuter tous les détecteurs
             results = self._run_all_detectors(file_path, df)
 
@@ -79,6 +83,21 @@ class HybridDetector(BaseDetector):
                 return self._create_failed_result(
                     file_path,
                     "Aucun détecteur n'a réussi à détecter la structure"
+                )
+
+            # Signaler l'élagage (sans dégrader la confiance) : l'utilisateur
+            # doit en être informé dans l'aperçu pour décider en connaissance.
+            if pruned_cols > 0:
+                best_result.debug_info['pruned_phantom_columns'] = pruned_cols
+                kept = df.shape[1]
+                notice = (
+                    f"{pruned_cols} colonne(s) vide(s) parasite(s) ignorée(s) "
+                    f"(le tableau utile fait {kept} colonne(s)). Vérifiez que vos "
+                    f"données tiennent bien dans ces {kept} premières colonnes."
+                )
+                best_result.warning = (
+                    f"{best_result.warning} · {notice}"
+                    if best_result.warning else notice
                 )
 
             # Ajouter au cache pour validation croisée future
