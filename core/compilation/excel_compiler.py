@@ -28,6 +28,7 @@ from .subtotal_detector import (
     classify_row, ROW_KIND_DETAIL,
     DEFAULT_SUBTOTAL_KEYWORDS, DEFAULT_TOTAL_KEYWORDS,
 )
+from .column_aligner import ColumnAligner
 from .excel_formatter import ExcelFormatter
 from utils import logger
 
@@ -443,6 +444,12 @@ class ExcelCompiler:
         global_headers = None
         preliminary_info = []
 
+        # Aligneur par libellé (étape 5) : actif uniquement si l'option est
+        # demandée ET si l'en-tête tient sur une seule ligne (cas couvert par
+        # l'aplatissement des en-têtes, activé par défaut). En multi-lignes on
+        # conserve l'ajustement positionnel historique.
+        aligner = ColumnAligner() if self.options.align_columns_by_label else None
+
         # Charger les informations préliminaires si demandées
         if self.options.include_preliminary and self.options.preliminary_source_file:
             preliminary_info = self._load_preliminary_info(
@@ -503,8 +510,27 @@ class ExcelCompiler:
                     # Ajouter aussi la colonne aux en-têtes du fichier pour la comparaison
                     file_headers = self._add_filename_header(file_headers)
 
-                # Vérifier compatibilité des en-têtes
-                if not self._are_headers_compatible(global_headers, file_headers):
+                # Alignement des colonnes. L'alignement par libellé n'est appliqué
+                # que si l'en-tête tient sur UNE ligne (sinon ambiguïté : on
+                # retombe sur l'ajustement positionnel historique).
+                use_aligner = (
+                    aligner is not None
+                    and len(global_headers) == 1 and len(file_headers) == 1
+                )
+                if use_aligner:
+                    if not aligner.initialized:
+                        aligner.set_reference(global_headers[-1])
+                    file_data, new_labels = aligner.align(file_headers[-1], file_data)
+                    # Le schéma global peut s'être étendu : refléter ses libellés.
+                    global_headers = [aligner.schema_labels()]
+                    if new_labels:
+                        result.warnings.append(
+                            f"{Path(file_path).name}: "
+                            f"{len(new_labels)} colonne(s) inconnue(s) ajoutée(s) : "
+                            f"{', '.join(str(l) for l in new_labels)}"
+                        )
+                # Vérifier compatibilité des en-têtes (chemin positionnel)
+                elif not self._are_headers_compatible(global_headers, file_headers):
                     result.warnings.append(
                         f"{Path(file_path).name}: En-têtes incompatibles, "
                         f"ajustement automatique"
@@ -548,6 +574,18 @@ class ExcelCompiler:
                     processing_time=time.time() - file_start_time
                 )
                 result.add_file_result(file_result)
+
+        # Alignement par libellé : le schéma a pu s'élargir en cours de route
+        # (colonne inconnue apparue dans un fichier tardif). Les lignes des
+        # fichiers précédents, alignées sur un schéma plus étroit, sont alors
+        # plus courtes. On les rembourre à droite à la largeur finale (les
+        # colonnes déjà alignées gardent leur index, les nouvelles sont vides).
+        if aligner is not None and aligner.initialized:
+            width = aligner.width()
+            combined_data = [
+                row + [None] * (width - len(row)) if len(row) < width else row
+                for row in combined_data
+            ]
 
         # Ajouter les informations préliminaires au début si demandées
         if preliminary_info and combined_data:

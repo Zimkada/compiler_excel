@@ -101,6 +101,16 @@ class CompilationOptions:
     subtotal_keywords: Optional[List[str]] = None
     total_keywords: Optional[List[str]] = None
 
+    # Alignement des colonnes par libellé (v3.2) — quand les fichiers n'ont pas
+    # exactement les mêmes colonnes (ordre différent, colonne en plus / en
+    # moins), aligne chaque colonne sur son LIBELLÉ normalisé plutôt que sur sa
+    # position. Les colonnes communes sont empilées correctement ; les colonnes
+    # absentes d'un fichier deviennent des cellules vides (jamais inventées) ;
+    # les colonnes inconnues sont ajoutées au schéma global et signalées. Évite
+    # la corruption silencieuse de l'empilement positionnel. Désactivable pour
+    # retrouver le comportement positionnel (empilement par position + padding).
+    align_columns_by_label: bool = True
+
     # Options de performance
     enable_chunked_processing: bool = True
     chunk_size: int = 10000
@@ -134,6 +144,7 @@ class CompilationOptions:
             'subtotal_row_label': self.subtotal_row_label,
             'subtotal_keywords': self.subtotal_keywords,
             'total_keywords': self.total_keywords,
+            'align_columns_by_label': self.align_columns_by_label,
             'enable_chunked_processing': self.enable_chunked_processing,
             'chunk_size': self.chunk_size,
             'max_memory_percent': self.max_memory_percent

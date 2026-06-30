@@ -217,6 +217,16 @@ class OptionsWidget(QWidget):
         )
         self.checkbox_flatten_headers.toggled.connect(self.options_changed.emit)
 
+        # Alignement des colonnes par libellé
+        self.checkbox_align_columns = QCheckBox("Aligner les colonnes par libellé")
+        self.checkbox_align_columns.setChecked(True)
+        self.checkbox_align_columns.setToolTip(
+            "Aligne les colonnes des fichiers sur leur libellé (et non leur "
+            "position) : évite d'empiler une colonne sous une autre quand l'ordre "
+            "diffère. Colonnes manquantes laissées vides, jamais inventées."
+        )
+        self.checkbox_align_columns.toggled.connect(self.options_changed.emit)
+
         # Lignes de sous-total / total
         self.checkbox_drop_subtotals = QCheckBox("Exclure les lignes de total / sous-total")
         self.checkbox_drop_subtotals.setChecked(True)
@@ -238,6 +248,7 @@ class OptionsWidget(QWidget):
 
         robustness_layout.addWidget(self.checkbox_unmerge_cells)
         robustness_layout.addWidget(self.checkbox_flatten_headers)
+        robustness_layout.addWidget(self.checkbox_align_columns)
         robustness_layout.addWidget(self.checkbox_drop_subtotals)
         robustness_layout.addWidget(self.checkbox_mark_subtotals)
 
@@ -408,6 +419,7 @@ class OptionsWidget(QWidget):
             # Robustesse des tableaux (v3.2)
             unmerge_cells=self.checkbox_unmerge_cells.isChecked(),
             flatten_multiindex_headers=self.checkbox_flatten_headers.isChecked(),
+            align_columns_by_label=self.checkbox_align_columns.isChecked(),
             drop_subtotal_rows=self.checkbox_drop_subtotals.isChecked(),
             mark_subtotal_rows=self.checkbox_mark_subtotals.isChecked(),
         )
