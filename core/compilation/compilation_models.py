@@ -5,7 +5,7 @@ Version: 3.2
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
 from enum import Enum
 
@@ -68,6 +68,12 @@ class CompilationOptions:
     manual_header_start_row: int = 1
     manual_header_rows: int = 1
 
+    # Corrections manuelles par fichier (v3.2) — priorité absolue sur la
+    # détection et sur le manuel global. Permet à l'utilisateur de fixer
+    # lui-même l'en-tête d'un fichier mal identifié, fichier par fichier.
+    # {chemin_fichier: (header_start_row, header_rows)} (lignes 1-based)
+    manual_overrides: Dict[str, Tuple[int, int]] = field(default_factory=dict)
+
     # Options de performance
     enable_chunked_processing: bool = True
     chunk_size: int = 10000
@@ -93,6 +99,7 @@ class CompilationOptions:
             'reference_header_lines': self.reference_header_lines,
             'manual_header_start_row': self.manual_header_start_row,
             'manual_header_rows': self.manual_header_rows,
+            'manual_overrides': {k: list(v) for k, v in self.manual_overrides.items()},
             'enable_chunked_processing': self.enable_chunked_processing,
             'chunk_size': self.chunk_size,
             'max_memory_percent': self.max_memory_percent

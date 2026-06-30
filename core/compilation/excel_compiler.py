@@ -227,27 +227,22 @@ class ExcelCompiler:
         """Construit l'aperçu d'un fichier à partir de sa détection (ou du
         mode manuel si aucune détection n'est disponible)."""
         try:
-            # Déterminer les paramètres effectifs (détection ou manuel),
-            # en réutilisant le même critère de seuil que le chargement réel.
-            use_detection = (
-                detection is not None
-                and detection.confidence >= self.options.detection_confidence_threshold
-            )
-            if use_detection:
-                header_start = detection.header_start_row
-                header_rows = detection.header_rows
-                data_start = detection.data_start_row
-                data_end = detection.data_end_row
-                confidence = detection.confidence
-                method = detection.detection_method
+            # Déterminer les paramètres effectifs via la MÊME logique que la
+            # compilation (override > détection > manuel) — zéro divergence.
+            structure = self._resolve_structure(file_path, detection)
+            header_start = structure['header_start_row']
+            header_rows = structure['header_rows']
+            data_start = structure['data_start_row']
+            data_end = structure['data_end_row']
+            confidence = structure['detection_confidence']
+            method = structure['detection_method']
+            # Warning : celui de la détection seulement si elle est réellement
+            # utilisée ; sinon (override / manuel) message adapté.
+            if method == 'override':
+                warning = "Correction manuelle appliquée par l'utilisateur."
+            elif structure['detection_used']:
                 warning = detection.warning
             else:
-                header_start = self.options.manual_header_start_row
-                header_rows = self.options.manual_header_rows
-                data_start = header_start + header_rows
-                data_end = 0
-                confidence = 0.0
-                method = "manual"
                 warning = None
 
             # Lire le fichier pour extraire en-têtes et compter les données.
@@ -507,6 +502,56 @@ class ExcelCompiler:
 
         return combined_data, global_headers if global_headers else []
 
+    def _resolve_structure(self, file_path: str,
+                           detection: Optional[DetectionResult]) -> Dict[str, Any]:
+        """Détermine la structure effective d'un fichier selon l'ordre de
+        priorité, identique pour l'aperçu ET la compilation (zéro divergence) :
+
+            1. Correction manuelle par fichier (manual_overrides) — priorité absolue
+            2. Détection automatique/référence si confiance >= seuil
+            3. Paramètres manuels globaux (fallback)
+
+        Returns:
+            Dict avec les clés de FileCompilationResult :
+            detection_used, header_start_row, header_rows, data_start_row,
+            data_end_row, detection_confidence, detection_method.
+        """
+        override = self.options.manual_overrides.get(file_path)
+        if override is not None:
+            header_start_row, header_rows = override
+            return {
+                'detection_used': False,
+                'header_start_row': header_start_row,
+                'header_rows': header_rows,
+                'data_start_row': header_start_row + header_rows,
+                'data_end_row': 0,
+                'detection_confidence': 1.0,
+                'detection_method': 'override',
+            }
+
+        if detection and detection.confidence >= self.options.detection_confidence_threshold:
+            return {
+                'detection_used': True,
+                'header_start_row': detection.header_start_row,
+                'header_rows': detection.header_rows,
+                'data_start_row': detection.data_start_row,
+                'data_end_row': detection.data_end_row if detection.data_end_row > 0 else 0,
+                'detection_confidence': detection.confidence,
+                'detection_method': detection.detection_method,
+            }
+
+        header_start_row = self.options.manual_header_start_row
+        header_rows = self.options.manual_header_rows
+        return {
+            'detection_used': False,
+            'header_start_row': header_start_row,
+            'header_rows': header_rows,
+            'data_start_row': header_start_row + header_rows,
+            'data_end_row': 0,
+            'detection_confidence': 0.0,
+            'detection_method': 'manual',
+        }
+
     def _load_single_file(self, file_path: str,
                          detection: Optional[DetectionResult],
                          include_preliminary: bool = False) -> Tuple[Optional[List], List, Dict]:
@@ -548,39 +593,12 @@ class ExcelCompiler:
         Returns:
             Tuple (data, headers, detection_info)
         """
-        # Déterminer les paramètres de chargement
-        if detection and detection.confidence >= self.options.detection_confidence_threshold:
-            # Utiliser la détection
-            header_start_row = detection.header_start_row
-            header_rows = detection.header_rows
-            data_start_row = detection.data_start_row
-            data_end_row = detection.data_end_row if detection.data_end_row > 0 else None
-
-            detection_info = {
-                'detection_used': True,
-                'header_start_row': header_start_row,
-                'header_rows': header_rows,
-                'data_start_row': data_start_row,
-                'data_end_row': data_end_row or 0,
-                'detection_confidence': detection.confidence,
-                'detection_method': detection.detection_method
-            }
-        else:
-            # Utiliser les paramètres manuels
-            header_start_row = self.options.manual_header_start_row
-            header_rows = self.options.manual_header_rows
-            data_start_row = header_start_row + header_rows
-            data_end_row = None
-
-            detection_info = {
-                'detection_used': False,
-                'header_start_row': header_start_row,
-                'header_rows': header_rows,
-                'data_start_row': data_start_row,
-                'data_end_row': 0,
-                'detection_confidence': 0.0,
-                'detection_method': 'manual'
-            }
+        # Déterminer les paramètres de chargement (override > détection > manuel)
+        detection_info = self._resolve_structure(file_path, detection)
+        header_start_row = detection_info['header_start_row']
+        header_rows = detection_info['header_rows']
+        data_start_row = detection_info['data_start_row']
+        data_end_row = detection_info['data_end_row'] or None
 
         # Charger avec pandas (et élaguer les colonnes parasites pour rester
         # cohérent avec la détection — sinon l'export traînerait des milliers
@@ -623,7 +641,7 @@ class ExcelCompiler:
             try:
                 df = pd.read_csv(file_path, header=None, encoding=encoding)
                 # Utiliser la même logique que Excel
-                return self._extract_data_from_dataframe(df, detection, include_preliminary)
+                return self._extract_data_from_dataframe(df, file_path, detection, include_preliminary)
             except UnicodeDecodeError:
                 continue
 
@@ -634,48 +652,22 @@ class ExcelCompiler:
                       include_preliminary: bool) -> Tuple[Optional[List], List, Dict]:
         """Charge un fichier TSV"""
         df = pd.read_csv(file_path, header=None, sep='\t', encoding='utf-8-sig')
-        return self._extract_data_from_dataframe(df, detection, include_preliminary)
+        return self._extract_data_from_dataframe(df, file_path, detection, include_preliminary)
 
     def _extract_data_from_dataframe(self, df: pd.DataFrame,
+                                    file_path: str,
                                     detection: Optional[DetectionResult],
                                     include_preliminary: bool) -> Tuple[List, List, Dict]:
         """Extrait données et en-têtes d'un DataFrame (logique commune CSV/TSV/Excel)"""
         # Cohérence avec la détection : élaguer d'éventuelles colonnes parasites.
         df, _ = prune_phantom_columns(df)
 
-        # Déterminer les paramètres de chargement
-        if detection and detection.confidence >= self.options.detection_confidence_threshold:
-            # Utiliser la détection
-            header_start_row = detection.header_start_row
-            header_rows = detection.header_rows
-            data_start_row = detection.data_start_row
-            data_end_row = detection.data_end_row if detection.data_end_row > 0 else None
-
-            detection_info = {
-                'detection_used': True,
-                'header_start_row': header_start_row,
-                'header_rows': header_rows,
-                'data_start_row': data_start_row,
-                'data_end_row': data_end_row or 0,
-                'detection_confidence': detection.confidence,
-                'detection_method': detection.detection_method
-            }
-        else:
-            # Utiliser les paramètres manuels
-            header_start_row = self.options.manual_header_start_row
-            header_rows = self.options.manual_header_rows
-            data_start_row = header_start_row + header_rows
-            data_end_row = None
-
-            detection_info = {
-                'detection_used': False,
-                'header_start_row': header_start_row,
-                'header_rows': header_rows,
-                'data_start_row': data_start_row,
-                'data_end_row': 0,
-                'detection_confidence': 0.0,
-                'detection_method': 'manual'
-            }
+        # Déterminer les paramètres de chargement (override > détection > manuel)
+        detection_info = self._resolve_structure(file_path, detection)
+        header_start_row = detection_info['header_start_row']
+        header_rows = detection_info['header_rows']
+        data_start_row = detection_info['data_start_row']
+        data_end_row = detection_info['data_end_row'] or None
 
         # Extraire les en-têtes
         headers = []
