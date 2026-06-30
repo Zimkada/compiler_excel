@@ -35,6 +35,25 @@ nul
 /compilation.xlsx
 /compilation_gounarou_complet.xlsx
 
+# ===== Scripts de dev / diagnostic à la racine (hors livrable) =====
+# Outils locaux non packagés : scripts smoke legacy (non-pytest), diagnostic,
+# visualisation. La vraie suite de tests est dans tests/.
+/diagnostic_bug.py
+/view_file.py
+/test_refactoring.py
+/test_compilation.py
+/test_compilation_gounarou.py
+/test_detection.py
+/test_formatting.py
+# Config générée à l'exécution (ancien AppConfig retiré).
+/excelcompiler_config.json
+
+# ===== Données réelles / sensibles (NE JAMAIS COMMITER) =====
+# Données de travail à caractère personnel ou sensible (RGPD).
+# Conservées en local comme jeux de test, exclues du dépôt et du livrable.
+GROSSESSES/
+*.donnees-reelles.xlsx
+
 # ===== IDE / OS =====
 .vscode/
 .idea/
