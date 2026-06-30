@@ -9,6 +9,7 @@ from .file_utils import (
     validate_file_exists,
     get_file_size_mb
 )
+from .resources import resource_path
 
 __all__ = [
     'logger',
@@ -16,5 +17,6 @@ __all__ = [
     'calculate_file_hash',
     'get_file_extension',
     'validate_file_exists',
-    'get_file_size_mb'
+    'get_file_size_mb',
+    'resource_path'
 ]

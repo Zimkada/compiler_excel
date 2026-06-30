@@ -3,10 +3,11 @@
 """
 
 from PyQt6.QtWidgets import QSplashScreen
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QRect
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QBrush, QPen
 
 from ui.styles import theme as T
+from utils import resource_path
 
 
 def make_splash() -> QSplashScreen:
@@ -29,12 +30,25 @@ def make_splash() -> QSplashScreen:
     painter.drawRoundedRect(0, 0, w, 96, T.RADIUS_LG, T.RADIUS_LG)
     painter.drawRect(0, 48, w, 48)  # bas du bandeau droit
 
-    # Pastille logo
+    # Pastille logo : vrai logo de l'app (icon.ico) avec repli emoji
     painter.setBrush(QBrush(QColor(255, 255, 255, 45)))
     painter.drawRoundedRect(w // 2 - 28, 24, 56, 56, T.RADIUS_MD, T.RADIUS_MD)
-    painter.setPen(QColor(T.TEXT_ON_ACCENT))
-    painter.setFont(QFont(T.FONT_FAMILY, 24))
-    painter.drawText(w // 2 - 28, 24, 56, 56, Qt.AlignmentFlag.AlignCenter, "📊")
+    logo_path = resource_path("icon.ico")
+    logo_pixmap = QPixmap(str(logo_path)) if logo_path.exists() else QPixmap()
+    if not logo_pixmap.isNull():
+        scaled = logo_pixmap.scaled(
+            40, 40,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        target = QRect(w // 2 - 28, 24, 56, 56)
+        x = target.x() + (target.width() - scaled.width()) // 2
+        y = target.y() + (target.height() - scaled.height()) // 2
+        painter.drawPixmap(x, y, scaled)
+    else:
+        painter.setPen(QColor(T.TEXT_ON_ACCENT))
+        painter.setFont(QFont(T.FONT_FAMILY, 24))
+        painter.drawText(w // 2 - 28, 24, 56, 56, Qt.AlignmentFlag.AlignCenter, "📊")
 
     # Titre
     painter.setPen(QColor(T.TEXT_PRIMARY))

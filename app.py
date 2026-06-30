@@ -25,11 +25,25 @@ from ui.main_window import MainWindow
 from utils import logger
 
 
+def _log_dir() -> Path:
+    """Dossier des logs, inscriptible aussi bien en dev qu'une fois packagé.
+
+    En développement on garde ``./logs``. Packagée, l'app peut être installée
+    dans un emplacement non inscriptible (Program Files) : on bascule alors sur
+    ``%LOCALAPPDATA%\\ExcelCompiler\\logs``.
+    """
+    if getattr(sys, "frozen", False):
+        import os
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "ExcelCompiler"
+        return base / "logs"
+    return Path("logs")
+
+
 def setup_logging():
     """Configure le logging pour l'application"""
-    # Créer dossier logs s'il n'existe pas
-    log_dir = Path("logs")
-    log_dir.mkdir(exist_ok=True)
+    # Créer dossier logs s'il n'existe pas (emplacement inscriptible)
+    log_dir = _log_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     # Configuration du logging
     logging.basicConfig(
@@ -72,7 +86,8 @@ def main():
     app.setStyleSheet(build_stylesheet())
 
     # Définir l'icône de l'application (si disponible)
-    icon_path = Path("icon.png")
+    from utils import resource_path
+    icon_path = resource_path("icon.png")
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
