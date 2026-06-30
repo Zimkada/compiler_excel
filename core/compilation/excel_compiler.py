@@ -24,6 +24,10 @@ from .compilation_models import (
 from ..detection import HybridDetector, ReferenceDetector, DetectionResult
 from ..detection.base_detector import prune_phantom_columns
 from .merge_handler import load_with_unmerge
+from .subtotal_detector import (
+    classify_row, ROW_KIND_DETAIL,
+    DEFAULT_SUBTOTAL_KEYWORDS, DEFAULT_TOTAL_KEYWORDS,
+)
 from .excel_formatter import ExcelFormatter
 from utils import logger
 
@@ -283,8 +287,11 @@ class ExcelCompiler:
 
             # Étendue des données. On compte les lignes EXACTEMENT comme le
             # chargement réel : dans la plage [data_start, end[, en excluant les
-            # lignes vides si remove_empty_rows est actif (sinon l'aperçu
-            # surestimerait le nombre de lignes par rapport à la compilation).
+            # lignes vides (si remove_empty_rows) ET les lignes de total (si
+            # drop_subtotal_rows) — sinon l'aperçu surestimerait le nombre de
+            # lignes par rapport à la compilation (invariant aperçu = sortie).
+            sub_kw = self.options.subtotal_keywords or DEFAULT_SUBTOTAL_KEYWORDS
+            tot_kw = self.options.total_keywords or DEFAULT_TOTAL_KEYWORDS
             end = data_end if (data_end and data_end > 0) else n
             end = min(end, n)
             data_row_count = 0
@@ -293,6 +300,8 @@ class ExcelCompiler:
                     continue
                 row = df.iloc[idx].tolist()
                 if self.options.remove_empty_rows and self._is_row_empty(row):
+                    continue
+                if self.options.drop_subtotal_rows and classify_row(row, sub_kw, tot_kw) != ROW_KIND_DETAIL:
                     continue
                 data_row_count += 1
 
@@ -520,6 +529,16 @@ class ExcelCompiler:
                 )
                 result.add_file_result(file_result)
 
+                # Signaler les lignes de total (transparence, jamais silencieux).
+                n_sub = detection_info.get('subtotal_rows', 0)
+                if n_sub:
+                    action = ("exclues" if self.options.drop_subtotal_rows
+                              else "conservées et marquées" if self.options.mark_subtotal_rows
+                              else "conservées")
+                    result.warnings.append(
+                        f"{Path(file_path).name}: {n_sub} ligne(s) de total {action}"
+                    )
+
             except Exception as e:
                 self.logger.error(f"Erreur traitement {file_path}: {e}")
                 file_result = FileCompilationResult(
@@ -655,22 +674,60 @@ class ExcelCompiler:
         # Extraire les en-têtes (aplatis en une ligne si l'option est active).
         headers = self._collect_headers(df, header_start_row, header_rows)
 
-        # Extraire les données
-        data = []
+        # Extraire les données (filtrage lignes vides + sous-totaux).
         start_idx = data_start_row - 1
         end_idx = (data_end_row if data_end_row else len(df))
-
-        for row_idx in range(start_idx, end_idx):
-            if row_idx < len(df):
-                row = df.iloc[row_idx].tolist()
-
-                # Supprimer lignes vides si demandé
-                if self.options.remove_empty_rows and self._is_row_empty(row):
-                    continue
-
-                data.append(row)
+        data, headers, n_subtotal = self._extract_data_rows(df, start_idx, end_idx, headers)
+        detection_info['subtotal_rows'] = n_subtotal
 
         return data, headers, detection_info
+
+    def _extract_data_rows(self, df: pd.DataFrame, start_idx: int, end_idx: int,
+                           headers: List[List]) -> Tuple[List[List], List[List], int]:
+        """Extrait les lignes de données de [start_idx, end_idx[, en filtrant les
+        lignes vides et en traitant les lignes de total selon les options.
+
+        - drop_subtotal_rows : les lignes de total/sous-total sont exclues.
+        - sinon, si mark_subtotal_rows : une colonne « Type de ligne » est
+          ajoutée en tête (détail/sous-total/total), et le label correspondant
+          est inséré dans les en-têtes — pour un filtrage propre côté tableur.
+
+        Renvoie (data, headers_éventuellement_préfixés, nombre_de_totaux_vus).
+        Point d'extraction unique partagé par Excel et CSV/TSV.
+        """
+        sub_kw = self.options.subtotal_keywords or DEFAULT_SUBTOTAL_KEYWORDS
+        tot_kw = self.options.total_keywords or DEFAULT_TOTAL_KEYWORDS
+        drop = self.options.drop_subtotal_rows
+        mark = (not drop) and self.options.mark_subtotal_rows
+
+        data: List[List] = []
+        n_subtotal = 0
+        for row_idx in range(start_idx, end_idx):
+            if row_idx >= len(df):
+                continue
+            row = df.iloc[row_idx].tolist()
+
+            if self.options.remove_empty_rows and self._is_row_empty(row):
+                continue
+
+            kind = classify_row(row, sub_kw, tot_kw)
+            is_total = kind != ROW_KIND_DETAIL
+            if is_total:
+                n_subtotal += 1
+                if drop:
+                    continue  # exclure pour éviter le double comptage
+            if mark:
+                row = [kind] + row
+            data.append(row)
+
+        # Aligner les en-têtes si on a préfixé une colonne marqueur.
+        if mark:
+            label = self.options.subtotal_row_label
+            headers = [
+                ([label] + h) if i == len(headers) - 1 else ([""] + h)
+                for i, h in enumerate(headers)
+            ]
+        return data, headers, n_subtotal
 
     def _load_csv_file(self, file_path: str,
                       detection: Optional[DetectionResult],
@@ -714,20 +771,11 @@ class ExcelCompiler:
         # Extraire les en-têtes (aplatis en une ligne si l'option est active).
         headers = self._collect_headers(df, header_start_row, header_rows)
 
-        # Extraire les données
-        data = []
+        # Extraire les données (filtrage lignes vides + sous-totaux).
         start_idx = data_start_row - 1
         end_idx = (data_end_row if data_end_row else len(df))
-
-        for row_idx in range(start_idx, end_idx):
-            if row_idx < len(df):
-                row = df.iloc[row_idx].tolist()
-
-                # Supprimer lignes vides si demandé
-                if self.options.remove_empty_rows and self._is_row_empty(row):
-                    continue
-
-                data.append(row)
+        data, headers, n_subtotal = self._extract_data_rows(df, start_idx, end_idx, headers)
+        detection_info['subtotal_rows'] = n_subtotal
 
         return data, headers, detection_info
 

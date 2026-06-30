@@ -88,6 +88,19 @@ class CompilationOptions:
     # d'en-tête brutes telles quelles.
     flatten_multiindex_headers: bool = True
 
+    # Lignes de sous-total / total (v3.2) — les tableaux intercalent souvent des
+    # lignes d'agrégat (« ENSEMBLE COMMUNE », « ENSEMBLE DEPARTEMENT »…). Par
+    # défaut elles sont EXCLUES (évite le double comptage) et leur nombre est
+    # signalé. Si drop_subtotal_rows=False, elles sont conservées et, si
+    # mark_subtotal_rows est actif, une colonne « Type de ligne » est ajoutée
+    # (détail / sous-total / total) pour permettre un filtrage propre.
+    drop_subtotal_rows: bool = True
+    mark_subtotal_rows: bool = True
+    subtotal_row_label: str = "Type de ligne"
+    # Mots-clés configurables (None = listes par défaut du subtotal_detector).
+    subtotal_keywords: Optional[List[str]] = None
+    total_keywords: Optional[List[str]] = None
+
     # Options de performance
     enable_chunked_processing: bool = True
     chunk_size: int = 10000
@@ -116,6 +129,11 @@ class CompilationOptions:
             'manual_overrides': {k: list(v) for k, v in self.manual_overrides.items()},
             'unmerge_cells': self.unmerge_cells,
             'flatten_multiindex_headers': self.flatten_multiindex_headers,
+            'drop_subtotal_rows': self.drop_subtotal_rows,
+            'mark_subtotal_rows': self.mark_subtotal_rows,
+            'subtotal_row_label': self.subtotal_row_label,
+            'subtotal_keywords': self.subtotal_keywords,
+            'total_keywords': self.total_keywords,
             'enable_chunked_processing': self.enable_chunked_processing,
             'chunk_size': self.chunk_size,
             'max_memory_percent': self.max_memory_percent
@@ -172,6 +190,10 @@ class FileCompilationResult:
     data_end_row: int = 0
     detection_confidence: float = 0.0
     detection_method: str = "manual"
+
+    # Nombre de lignes de total / sous-total détectées dans ce fichier
+    # (exclues si drop_subtotal_rows, sinon conservées et éventuellement marquées).
+    subtotal_rows: int = 0
 
     # Métriques
     processing_time: float = 0.0
