@@ -91,6 +91,10 @@ class ResultsWidget(QWidget):
             f"QTextEdit {{ border: 1px solid {T.BORDER}; "
             f"border-radius: {T.RADIUS_SM}px; background-color: {T.BG_SUBTLE}; "
             f"color: {T.TEXT_PRIMARY}; padding: 8px; }}"
+            f"QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}"
+            f"QScrollBar::handle:vertical {{ background: {T.BORDER_STRONG}; border-radius: 5px; min-height: 30px; }}"
+            f"QScrollBar::handle:vertical:hover {{ background: {T.TEXT_MUTED}; }}"
+            f"QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}"
         )
         # Re-rendre le résumé HTML avec les couleurs du thème courant
         state, payload = self._last_result or ("empty", None)

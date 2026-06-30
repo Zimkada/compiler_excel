@@ -15,7 +15,22 @@ from typing import List
 
 from ui.styles import theme as T
 
-SUPPORTED_EXTENSIONS = ['.xlsx', '.xls', '.xlsm', '.csv', '.tsv']
+SUPPORTED_EXTENSIONS = ['.xlsx', '.xlsm', '.csv', '.tsv']
+
+
+class _PassthroughListWidget(QListWidget):
+    """QListWidget qui laisse remonter la molette au QScrollArea parent
+    quand son propre contenu n'a rien à défiler dans la direction voulue."""
+
+    def wheelEvent(self, event):
+        bar = self.verticalScrollBar()
+        at_top = bar.value() == bar.minimum()
+        at_bottom = bar.value() == bar.maximum()
+        scrolling_up = event.angleDelta().y() > 0
+        if (at_top and scrolling_up) or (at_bottom and not scrolling_up):
+            event.ignore()
+            return
+        super().wheelEvent(event)
 
 
 class FileSelectorWidget(QWidget):
@@ -79,7 +94,7 @@ class FileSelectorWidget(QWidget):
         group_layout.addLayout(selection_bar)
 
         # Liste des fichiers
-        self.list_files = QListWidget()
+        self.list_files = _PassthroughListWidget()
         self.list_files.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         self.list_files.setMinimumHeight(150)
         self.list_files.setMaximumHeight(250)
