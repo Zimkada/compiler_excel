@@ -53,6 +53,10 @@ nul
 # Conservées en local comme jeux de test, exclues du dépôt et du livrable.
 GROSSESSES/
 *.donnees-reelles.xlsx
+# Jeux de test contenant des données personnelles réelles (matricules, noms,
+# situation matrimoniale d'agents). Les tests de détection skippent proprement
+# si ce dossier est absent (pytest.skip) — le dépôt reste fonctionnel.
+tests/test_data/
 
 # ===== IDE / OS =====
 .vscode/
