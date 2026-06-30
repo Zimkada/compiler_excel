@@ -9,8 +9,8 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QFrame, QScrollArea, QButtonGroup,
     QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QIcon, QColor
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap
 from pathlib import Path
 
 from ui.widgets import (
@@ -20,7 +20,6 @@ from ui.widgets import (
     ResultsWidget
 )
 from ui.workers import CompilationWorker
-from ui.styles import EXCEL_GREEN, WHITE
 from ui.styles import theme as T
 from utils import logger
 
@@ -37,6 +36,7 @@ class MainWindow(QMainWindow):
         self.compilation_worker = None
         self.setup_ui()
         self.connect_signals()
+        T.manager.theme_changed.connect(self.apply_theme)
 
     @staticmethod
     def _apply_soft_shadow(widget, blur=24, dy=4, alpha=28):
@@ -82,34 +82,48 @@ class MainWindow(QMainWindow):
         root.addWidget(body, stretch=1)
 
         # === FOOTER (barre de statut discrète) ===
-        footer = QWidget()
-        footer.setStyleSheet(f"background-color: {T.BG_SURFACE}; "
-                             f"border-top: 1px solid {T.BORDER};")
-        footer_layout = QHBoxLayout(footer)
+        self.footer = QWidget()
+        footer_layout = QHBoxLayout(self.footer)
         footer_layout.setContentsMargins(T.SPACE_LG, T.SPACE_SM, T.SPACE_LG, T.SPACE_SM)
         self.status_label = QLabel("Prêt")
-        self.status_label.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: {T.FONT_SIZE_SM}pt;")
         footer_layout.addWidget(self.status_label)
         footer_layout.addStretch()
-        root.addWidget(footer)
+        root.addWidget(self.footer)
+
+        # Appliquer les styles inline dépendant du thème (footer, sidebar, etc.)
+        self.apply_theme()
 
     def create_header(self) -> QWidget:
         """Header héro : bandeau accent avec logo, titre et accroche."""
         header = QWidget()
+        self.header = header
         header.setFixedHeight(84)
         header.setStyleSheet(f"background-color: {T.ACCENT};")
         layout = QHBoxLayout(header)
         layout.setContentsMargins(T.SPACE_LG, 0, T.SPACE_LG, 0)
         layout.setSpacing(T.SPACE_MD)
 
-        # Pastille logo
-        logo = QLabel("📊")
+        # Pastille logo : vrai logo de l'app (icon.ico) avec repli emoji
+        logo = QLabel()
         logo.setFixedSize(48, 48)
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setStyleSheet(
-            f"background-color: rgba(255,255,255,40); border-radius: {T.RADIUS_MD}px; "
-            f"font-size: 22pt;"
-        )
+        logo_path = Path("icon.ico")
+        logo_pixmap = QPixmap(str(logo_path)) if logo_path.exists() else QPixmap()
+        if not logo_pixmap.isNull():
+            logo.setPixmap(logo_pixmap.scaled(
+                40, 40,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+            logo.setStyleSheet(
+                f"background-color: rgba(255,255,255,40); border-radius: {T.RADIUS_MD}px;"
+            )
+        else:
+            logo.setText("📊")
+            logo.setStyleSheet(
+                f"background-color: rgba(255,255,255,40); border-radius: {T.RADIUS_MD}px; "
+                f"font-size: 22pt;"
+            )
         layout.addWidget(logo)
 
         # Titre + accroche
@@ -127,6 +141,14 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
+        # Bouton bascule clair / sombre
+        self.theme_toggle = QPushButton()
+        self.theme_toggle.setFixedSize(40, 40)
+        self.theme_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_toggle.clicked.connect(self.toggle_theme)
+        self._style_theme_toggle()
+        layout.addWidget(self.theme_toggle)
+
         # Badge version
         badge = QLabel("v3.2")
         badge.setStyleSheet(
@@ -137,14 +159,99 @@ class MainWindow(QMainWindow):
 
         return header
 
+    def _style_theme_toggle(self):
+        """Met à jour l'icône et le style du bouton de bascule de thème.
+
+        Sur le bandeau accent (header), le bouton reste translucide blanc dans
+        les deux thèmes ; seule l'icône vectorielle (lune / soleil) change.
+        """
+        is_dark = T.manager.is_dark()
+        # Icône = action proposée : en clair on propose le sombre (lune), etc.
+        icon = self._make_sun_icon() if is_dark else self._make_moon_icon()
+        self.theme_toggle.setIcon(icon)
+        self.theme_toggle.setIconSize(QSize(20, 20))
+        self.theme_toggle.setText("")
+        self.theme_toggle.setToolTip(
+            "Passer en mode clair" if is_dark else "Passer en mode sombre"
+        )
+        self.theme_toggle.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba(255,255,255,38);
+                border: none;
+                border-radius: {T.RADIUS_MD}px;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(255,255,255,70);
+            }}
+            QPushButton:pressed {{
+                background-color: rgba(255,255,255,28);
+            }}
+        """)
+
+    @staticmethod
+    def _make_moon_icon(size: int = 20, color: str = "#FFFFFF") -> QIcon:
+        """Croissant de lune monochrome (obtenu par soustraction de 2 cercles)."""
+        from PyQt6.QtGui import QPainter, QPainterPath
+        pm = QPixmap(size, size)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        full = QPainterPath()
+        full.addEllipse(3.0, 2.5, size - 6.0, size - 6.0)          # disque plein
+        cut = QPainterPath()
+        cut.addEllipse(7.5, 1.0, size - 6.0, size - 6.0)           # disque décalé (à soustraire)
+        crescent = full.subtracted(cut)
+        p.fillPath(crescent, QColor(color))
+        p.end()
+        return QIcon(pm)
+
+    @staticmethod
+    def _make_sun_icon(size: int = 20, color: str = "#FFFFFF") -> QIcon:
+        """Soleil monochrome : disque central + 8 rayons."""
+        import math
+        from PyQt6.QtGui import QPainter, QPen
+        pm = QPixmap(size, size)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        c = size / 2.0
+        # Disque central
+        p.setBrush(QColor(color))
+        p.setPen(Qt.PenStyle.NoPen)
+        r = size * 0.22
+        p.drawEllipse(int(c - r), int(c - r), int(2 * r), int(2 * r))
+        # Rayons
+        pen = QPen(QColor(color))
+        pen.setWidthF(1.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        r_in = size * 0.34
+        r_out = size * 0.46
+        for i in range(8):
+            ang = math.pi * i / 4.0
+            dx, dy = math.cos(ang), math.sin(ang)
+            p.drawLine(
+                int(c + dx * r_in), int(c + dy * r_in),
+                int(c + dx * r_out), int(c + dy * r_out),
+            )
+        p.end()
+        return QIcon(pm)
+
+    def toggle_theme(self):
+        """Bascule entre thème clair et sombre et persiste le choix."""
+        mode = T.manager.toggle()
+        try:
+            from PyQt6.QtCore import QSettings
+            QSettings("GOUNOU N'GOBI Chabi Zimé", "ExcelCompiler").setValue("theme", mode)
+        except Exception:
+            logger.warning("Impossible de mémoriser le thème", exc_info=True)
+
     def create_sidebar(self) -> QWidget:
         """Navigation latérale (remplace les onglets) pilotant le QStackedWidget."""
         sidebar = QFrame()
+        self._sidebar_frame = sidebar
+        self._nav_buttons = []
         sidebar.setFixedWidth(208)
-        sidebar.setStyleSheet(
-            f"QFrame {{ background-color: {T.BG_SURFACE}; "
-            f"border: 1px solid {T.BORDER}; border-radius: {T.RADIUS_LG}px; }}"
-        )
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(T.SPACE_SM, T.SPACE_MD, T.SPACE_SM, T.SPACE_MD)
         layout.setSpacing(T.SPACE_XS)
@@ -153,21 +260,21 @@ class MainWindow(QMainWindow):
         self.nav_group.setExclusive(True)
         nav_items = [
             ("📝", "Compilation", 0),
-            ("📊", "Résultats", 1),
+            ("✅", "Résultats", 1),
             ("ℹ️", "À propos", 2),
         ]
         for icon, label, index in nav_items:
             btn = self._make_nav_button(icon, label)
             btn.clicked.connect(lambda _checked, i=index: self.navigate_to(i))
             self.nav_group.addButton(btn, index)
+            self._nav_buttons.append(btn)
             layout.addWidget(btn)
 
         layout.addStretch()
 
         # Pied de sidebar : signature discrète
-        sign = QLabel("© 2025\nGOUNOU N'GOBI C. Z.")
-        sign.setStyleSheet(f"color: {T.TEXT_MUTED}; font-size: 8pt; padding: 8px;")
-        layout.addWidget(sign)
+        self._sidebar_sign = QLabel("© 2025\nGOUNOU N'GOBI C. Z.")
+        layout.addWidget(self._sidebar_sign)
 
         # Activer le premier item
         self.nav_group.button(0).setChecked(True)
@@ -181,15 +288,25 @@ class MainWindow(QMainWindow):
         col.setContentsMargins(2, 0, 0, 0)
         col.setSpacing(2)
         t = QLabel(title)
-        t.setStyleSheet(
-            f"color: {T.TEXT_PRIMARY}; font-size: 16pt; font-weight: 800;"
-        )
         d = QLabel(description)
-        d.setStyleSheet(f"color: {T.TEXT_SECONDARY}; font-size: 10pt;")
         d.setWordWrap(True)
         col.addWidget(t)
         col.addWidget(d)
+        # Mémoriser pour re-thématisation
+        if not hasattr(self, "_page_header_titles"):
+            self._page_header_titles = []
+            self._page_header_descs = []
+        self._page_header_titles.append(t)
+        self._page_header_descs.append(d)
+        self._style_page_header(t, d)
         return header
+
+    @staticmethod
+    def _style_page_header(title_label: QLabel, desc_label: QLabel):
+        title_label.setStyleSheet(
+            f"color: {T.TEXT_PRIMARY}; font-size: 16pt; font-weight: 800;"
+        )
+        desc_label.setStyleSheet(f"color: {T.TEXT_SECONDARY}; font-size: 10pt;")
 
     def _make_nav_button(self, icon: str, label: str) -> QPushButton:
         """Bouton de navigation latérale, checkable, au style premium."""
@@ -197,6 +314,11 @@ class MainWindow(QMainWindow):
         btn.setCheckable(True)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setMinimumHeight(42)
+        self._style_nav_button(btn)
+        return btn
+
+    @staticmethod
+    def _style_nav_button(btn: QPushButton):
         btn.setStyleSheet(f"""
             QPushButton {{
                 text-align: left;
@@ -218,7 +340,6 @@ class MainWindow(QMainWindow):
                 font-weight: 700;
             }}
         """)
-        return btn
 
     def navigate_to(self, index: int):
         """Change de page et synchronise la sidebar."""
@@ -266,10 +387,7 @@ class MainWindow(QMainWindow):
 
         # Barre d'actions fixe (carte détachée par une bordure haute)
         button_container = QFrame()
-        button_container.setStyleSheet(
-            f"QFrame {{ background-color: {T.BG_SURFACE}; "
-            f"border-top: 1px solid {T.BORDER}; border-radius: 0px; }}"
-        )
+        self._action_bar = button_container
         button_layout = QHBoxLayout(button_container)
         button_layout.setContentsMargins(T.SPACE_MD, T.SPACE_MD, T.SPACE_MD, T.SPACE_MD)
         button_layout.setSpacing(T.SPACE_MD)
@@ -324,10 +442,18 @@ class MainWindow(QMainWindow):
             "ExcelCompiler — compilateur Excel intelligent."
         ))
 
-        about_text = QTextBrowser()
-        about_text.setOpenExternalLinks(True)
-        about_text.setHtml("""
-        <h2 style='color: #217346;'>ExcelCompiler v3.2</h2>
+        self.about_text = QTextBrowser()
+        self.about_text.setOpenExternalLinks(True)
+        self._render_about()
+
+        layout.addWidget(self.about_text)
+
+        return tab
+
+    def _render_about(self):
+        """Rend le contenu HTML de l'onglet « À propos » aux couleurs du thème."""
+        self.about_text.setHtml(f"""
+        <h2 style='color: {T.ACCENT};'>ExcelCompiler v3.2</h2>
         <p><b>Compilateur Excel Intelligent avec Détection Automatique</b></p>
 
         <h3>Auteur</h3>
@@ -361,14 +487,56 @@ class MainWindow(QMainWindow):
         </ol>
 
         <hr>
-        <p style='text-align: center; color: #666;'>
+        <p style='text-align: center; color: {T.TEXT_MUTED};'>
         © 2025 GOUNOU N'GOBI Chabi Zimé - Tous droits réservés
         </p>
         """)
 
-        layout.addWidget(about_text)
+    def apply_theme(self, *_):
+        """Ré-applique le thème actif à toute la fenêtre.
 
-        return tab
+        Reconstruit la feuille de style globale (QApplication) puis ré-applique
+        les styles inline des éléments qui figent leurs couleurs à la
+        construction (header, sidebar, footer, barre d'actions, contenus HTML).
+        Connectée à ``ThemeManager.theme_changed``.
+        """
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(T.build_stylesheet())
+
+        # Header (bandeau accent) + bouton de bascule
+        self.header.setStyleSheet(f"background-color: {T.ACCENT};")
+        self._style_theme_toggle()
+
+        # Footer
+        self.footer.setStyleSheet(
+            f"background-color: {T.BG_SURFACE}; border-top: 1px solid {T.BORDER};")
+        self.status_label.setStyleSheet(
+            f"color: {T.TEXT_MUTED}; font-size: {T.FONT_SIZE_SM}pt;")
+
+        # Sidebar
+        self._sidebar_frame.setStyleSheet(
+            f"QFrame {{ background-color: {T.BG_SURFACE}; "
+            f"border: 1px solid {T.BORDER}; border-radius: {T.RADIUS_LG}px; }}"
+        )
+        self._sidebar_sign.setStyleSheet(
+            f"color: {T.TEXT_MUTED}; font-size: 8pt; padding: 8px;")
+        for btn in self._nav_buttons:
+            self._style_nav_button(btn)
+
+        # En-têtes de page
+        for t, d in zip(self._page_header_titles, self._page_header_descs):
+            self._style_page_header(t, d)
+
+        # Barre d'actions de la compilation
+        self._action_bar.setStyleSheet(
+            f"QFrame {{ background-color: {T.BG_SURFACE}; "
+            f"border-top: 1px solid {T.BORDER}; border-radius: 0px; }}"
+        )
+
+        # Contenu HTML « À propos »
+        self._render_about()
 
     def connect_signals(self):
         """Connecte les signaux et slots"""

@@ -14,7 +14,6 @@ import subprocess
 import platform
 
 from core.compilation import CompilationResult
-from ui.styles import EXCEL_GREEN, SUCCESS, WARNING, ERROR, NEUTRAL_DARK
 from ui.styles import theme as T
 
 
@@ -26,24 +25,22 @@ class ResultsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.last_output_file = None
+        self._last_result = None  # mémorise le dernier rendu pour re-thématiser
         self.setup_ui()
+        T.manager.theme_changed.connect(self.apply_theme)
 
     def setup_ui(self):
         """Configure l'interface du widget"""
         layout = QVBoxLayout(self)
 
         # Group box principal
-        group = QGroupBox("📊 Résultats de compilation")
+        group = QGroupBox("✅ Résultats de compilation")
         group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
         group_layout = QVBoxLayout()
 
         # Statistiques (label résumé)
         self.label_stats = QLabel("")
         self.label_stats.setFont(QFont("Segoe UI", 9))
-        self.label_stats.setStyleSheet(
-            f"color: {T.TEXT_PRIMARY}; padding: 12px; "
-            f"background-color: {T.BG_SUBTLE}; border-radius: {T.RADIUS_MD}px;"
-        )
         self.label_stats.setWordWrap(True)
         self.label_stats.setTextFormat(Qt.TextFormat.RichText)
         group_layout.addWidget(self.label_stats)
@@ -54,11 +51,6 @@ class ResultsWidget(QWidget):
         self.text_logs.setFont(QFont("Consolas", 8))
         self.text_logs.setMinimumHeight(150)
         self.text_logs.setMaximumHeight(200)
-        self.text_logs.setStyleSheet(
-            f"QTextEdit {{ border: 1px solid {T.BORDER}; "
-            f"border-radius: {T.RADIUS_SM}px; background-color: {T.BG_SUBTLE}; "
-            f"padding: 8px; }}"
-        )
         group_layout.addWidget(self.text_logs)
 
         # Boutons d'action
@@ -84,8 +76,30 @@ class ResultsWidget(QWidget):
         group.setLayout(group_layout)
         layout.addWidget(group)
 
+        self.apply_theme()
+
         # Initialiser avec message vide
         self.clear()
+
+    def apply_theme(self):
+        """(Ré)applique les styles inline et re-rend le contenu HTML au thème."""
+        self.label_stats.setStyleSheet(
+            f"color: {T.TEXT_PRIMARY}; padding: 12px; "
+            f"background-color: {T.BG_SUBTLE}; border-radius: {T.RADIUS_MD}px;"
+        )
+        self.text_logs.setStyleSheet(
+            f"QTextEdit {{ border: 1px solid {T.BORDER}; "
+            f"border-radius: {T.RADIUS_SM}px; background-color: {T.BG_SUBTLE}; "
+            f"color: {T.TEXT_PRIMARY}; padding: 8px; }}"
+        )
+        # Re-rendre le résumé HTML avec les couleurs du thème courant
+        state, payload = self._last_result or ("empty", None)
+        if state == "result":
+            self._render_stats(payload)
+        elif state == "error":
+            self._render_error(payload)
+        else:
+            self._render_empty()
 
     def display_result(self, result: CompilationResult):
         """
@@ -96,37 +110,11 @@ class ResultsWidget(QWidget):
         """
         # Sauvegarder le fichier de sortie
         self.last_output_file = result.output_file
+        self._last_result = ("result", result)
 
-        # Afficher statistiques
-        if result.success:
-            stats_html = f"""
-            <div style='color: {SUCCESS};'>
-                <b>✅ Compilation réussie</b>
-            </div>
-            <hr>
-            <b>Statistiques:</b><br>
-            • Fichiers traités: <b>{result.successful_files}/{result.total_files}</b><br>
-            • Lignes compilées: <b>{result.total_rows}</b><br>
-            • Temps total: <b>{result.total_processing_time:.2f}s</b><br>
-            • Fichier de sortie: <b>{Path(result.output_file).name}</b>
-            """
-
-            if result.auto_detection_used:
-                stats_html += f"<br>• Détection auto: <b>{result.detection_success_rate:.0%}</b> réussite"
-
-            self.label_stats.setText(stats_html)
-            self.button_open_folder.setEnabled(True)
-        else:
-            stats_html = f"""
-            <div style='color: {ERROR};'>
-                <b>❌ Compilation échouée</b>
-            </div>
-            <hr>
-            • Fichiers réussis: {result.successful_files}/{result.total_files}<br>
-            • Fichiers échoués: {result.failed_files}
-            """
-            self.label_stats.setText(stats_html)
-            self.button_open_folder.setEnabled(False)
+        # Afficher statistiques (rendu thème-aware)
+        self._render_stats(result)
+        self.button_open_folder.setEnabled(bool(result.success))
 
         # Afficher logs détaillés
         self.text_logs.clear()
@@ -142,6 +130,54 @@ class ResultsWidget(QWidget):
         # Scroll vers le haut
         self.text_logs.verticalScrollBar().setValue(0)
 
+    def _render_stats(self, result: CompilationResult):
+        """Construit le résumé HTML des statistiques aux couleurs du thème."""
+        if result.success:
+            stats_html = f"""
+            <div style='color: {T.SUCCESS};'>
+                <b>✅ Compilation réussie</b>
+            </div>
+            <hr>
+            <b>Statistiques:</b><br>
+            • Fichiers traités: <b>{result.successful_files}/{result.total_files}</b><br>
+            • Lignes compilées: <b>{result.total_rows}</b><br>
+            • Temps total: <b>{result.total_processing_time:.2f}s</b><br>
+            • Fichier de sortie: <b>{Path(result.output_file).name}</b>
+            """
+            if result.auto_detection_used:
+                stats_html += f"<br>• Détection auto: <b>{result.detection_success_rate:.0%}</b> réussite"
+        else:
+            stats_html = f"""
+            <div style='color: {T.DANGER};'>
+                <b>❌ Compilation échouée</b>
+            </div>
+            <hr>
+            • Fichiers réussis: {result.successful_files}/{result.total_files}<br>
+            • Fichiers échoués: {result.failed_files}
+            """
+        self.label_stats.setText(stats_html)
+
+    def _render_error(self, error_message: str):
+        """Construit le message d'erreur HTML aux couleurs du thème."""
+        self.label_stats.setText(f"""
+        <div style='color: {T.DANGER};'>
+            <b>❌ Erreur</b>
+        </div>
+        <hr>
+        {error_message}
+        """)
+
+    def _render_empty(self):
+        """Affiche l'état vide engageant aux couleurs du thème."""
+        self.label_stats.setText(
+            "<div style='text-align:center; padding:18px;'>"
+            "<span style='font-size:30pt;'>✅</span><br>"
+            "<b style='font-size:12pt;'>Aucune compilation pour l'instant</b><br>"
+            f"<span style='color:{T.TEXT_SECONDARY};'>Lancez une compilation depuis l'onglet "
+            "« Compilation » : les statistiques et détails s'afficheront ici.</span>"
+            "</div>"
+        )
+
     def display_error(self, error_message: str):
         """
         Affiche un message d'erreur
@@ -149,14 +185,8 @@ class ResultsWidget(QWidget):
         Args:
             error_message: Message d'erreur
         """
-        stats_html = f"""
-        <div style='color: {ERROR};'>
-            <b>❌ Erreur</b>
-        </div>
-        <hr>
-        {error_message}
-        """
-        self.label_stats.setText(stats_html)
+        self._last_result = ("error", error_message)
+        self._render_error(error_message)
 
         self.text_logs.clear()
         self.text_logs.append("=== ERREUR ===\n")
@@ -188,14 +218,8 @@ class ResultsWidget(QWidget):
 
     def clear(self):
         """Efface les résultats et affiche un état vide engageant."""
-        self.label_stats.setText(
-            "<div style='text-align:center; padding:18px;'>"
-            "<span style='font-size:30pt;'>📊</span><br>"
-            "<b style='font-size:12pt;'>Aucune compilation pour l'instant</b><br>"
-            "<span style='color:#5B636B;'>Lancez une compilation depuis l'onglet "
-            "« Compilation » : les statistiques et détails s'afficheront ici.</span>"
-            "</div>"
-        )
+        self._last_result = ("empty", None)
+        self._render_empty()
         self.text_logs.clear()
         self.text_logs.setPlaceholderText("Les détails de compilation apparaîtront ici…")
         self.button_open_folder.setEnabled(False)

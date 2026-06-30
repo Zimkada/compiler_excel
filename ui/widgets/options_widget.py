@@ -11,7 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from core.compilation import CompilationOptions, FilenameOption, OutputFormat
-from ui.styles import EXCEL_GREEN, NEUTRAL_DARK, OFFICE_ORANGE
+from ui.styles import theme as T
 
 
 class OptionsWidget(QWidget):
@@ -26,6 +26,7 @@ class OptionsWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
+        T.manager.theme_changed.connect(self.apply_theme)
 
     def setup_ui(self):
         """Configure l'interface du widget"""
@@ -40,34 +41,30 @@ class OptionsWidget(QWidget):
         self.checkbox_auto_mode = QCheckBox("🤖 Détection automatique")
         self.checkbox_auto_mode.setChecked(False)
         self.checkbox_auto_mode.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.checkbox_auto_mode.setStyleSheet(f"color: {EXCEL_GREEN};")
         self.checkbox_auto_mode.toggled.connect(self.on_mode_changed)
         detection_layout.addWidget(self.checkbox_auto_mode)
 
-        help_auto_label = QLabel(
+        self.help_auto_label = QLabel(
             "Le système détecte seul les en-têtes et les données de chaque "
             "fichier. Aucune saisie nécessaire."
         )
-        help_auto_label.setStyleSheet("color: #666; font-size: 8pt; font-style: italic; padding-left: 25px;")
-        help_auto_label.setWordWrap(True)
-        detection_layout.addWidget(help_auto_label)
+        self.help_auto_label.setWordWrap(True)
+        detection_layout.addWidget(self.help_auto_label)
 
         # === MODE 1: FICHIER DE RÉFÉRENCE (Semi-automatique) ===
         self.checkbox_reference_mode = QCheckBox("✨ Utiliser fichier de référence (recommandé)")
         self.checkbox_reference_mode.setChecked(True)  # COCHÉ PAR DÉFAUT
         self.checkbox_reference_mode.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.checkbox_reference_mode.setStyleSheet(f"color: {EXCEL_GREEN};")
         self.checkbox_reference_mode.toggled.connect(self.on_mode_changed)
         detection_layout.addWidget(self.checkbox_reference_mode)
 
         # Label explicatif mode référence
-        help_ref_label = QLabel(
+        self.help_ref_label = QLabel(
             "Spécifiez l'en-tête du premier fichier, "
             "le système trouvera automatiquement les en-têtes similaires dans les autres"
         )
-        help_ref_label.setStyleSheet("color: #666; font-size: 8pt; font-style: italic; padding-left: 25px;")
-        help_ref_label.setWordWrap(True)
-        detection_layout.addWidget(help_ref_label)
+        self.help_ref_label.setWordWrap(True)
+        detection_layout.addWidget(self.help_ref_label)
 
         # Options mode référence
         self.reference_group = QGroupBox("Configuration du fichier de référence")
@@ -88,15 +85,14 @@ class OptionsWidget(QWidget):
         self.spinbox_ref_header_lines.setValue(1)
         self.spinbox_ref_header_lines.valueChanged.connect(self.options_changed.emit)
 
-        ref_info_label = QLabel("💡 Le premier fichier sélectionné servira de référence")
-        ref_info_label.setStyleSheet("color: #217346; font-size: 8pt; padding: 5px;")
-        ref_info_label.setWordWrap(True)
+        self.ref_info_label = QLabel("💡 Le premier fichier sélectionné servira de référence")
+        self.ref_info_label.setWordWrap(True)
 
         ref_layout.addWidget(ref_label1, 0, 0)
         ref_layout.addWidget(self.spinbox_ref_header, 0, 1)
         ref_layout.addWidget(ref_label2, 1, 0)
         ref_layout.addWidget(self.spinbox_ref_header_lines, 1, 1)
-        ref_layout.addWidget(ref_info_label, 2, 0, 1, 2)
+        ref_layout.addWidget(self.ref_info_label, 2, 0, 1, 2)
 
         self.reference_group.setLayout(ref_layout)
         detection_layout.addWidget(self.reference_group)
@@ -109,10 +105,9 @@ class OptionsWidget(QWidget):
         detection_layout.addWidget(self.checkbox_manual_mode)
 
         # Label explicatif mode manuel
-        help_manual_label = QLabel("Tous les fichiers utiliseront exactement la même configuration")
-        help_manual_label.setStyleSheet("color: #666; font-size: 8pt; font-style: italic; padding-left: 25px;")
-        help_manual_label.setWordWrap(True)
-        detection_layout.addWidget(help_manual_label)
+        self.help_manual_label = QLabel("Tous les fichiers utiliseront exactement la même configuration")
+        self.help_manual_label.setWordWrap(True)
+        detection_layout.addWidget(self.help_manual_label)
 
         # Options mode manuel
         self.manual_group = QGroupBox("Configuration manuelle")
@@ -134,15 +129,14 @@ class OptionsWidget(QWidget):
         self.spinbox_header_rows.valueChanged.connect(self.options_changed.emit)
 
         # Warning manuel
-        warning_label = QLabel("⚠️ Assurez-vous que tous les fichiers ont exactement la même structure")
-        warning_label.setStyleSheet(f"color: {OFFICE_ORANGE}; font-size: 8pt; padding: 5px;")
-        warning_label.setWordWrap(True)
+        self.manual_warning_label = QLabel("⚠️ Assurez-vous que tous les fichiers ont exactement la même structure")
+        self.manual_warning_label.setWordWrap(True)
 
         manual_layout.addWidget(manual_label1, 0, 0)
         manual_layout.addWidget(self.spinbox_header_start, 0, 1)
         manual_layout.addWidget(manual_label2, 1, 0)
         manual_layout.addWidget(self.spinbox_header_rows, 1, 1)
-        manual_layout.addWidget(warning_label, 2, 0, 1, 2)
+        manual_layout.addWidget(self.manual_warning_label, 2, 0, 1, 2)
 
         self.manual_group.setLayout(manual_layout)
         detection_layout.addWidget(self.manual_group)
@@ -243,6 +237,32 @@ class OptionsWidget(QWidget):
 
         advanced_group.setLayout(advanced_layout)
         layout.addWidget(advanced_group)
+
+        self.apply_theme()
+
+    def apply_theme(self):
+        """(Ré)applique les styles inline dépendant du thème actif."""
+        # Cases « mode » : libellé en accent
+        accent_checkbox = f"color: {T.ACCENT};"
+        self.checkbox_auto_mode.setStyleSheet(accent_checkbox)
+        self.checkbox_reference_mode.setStyleSheet(accent_checkbox)
+
+        # Libellés d'aide discrets
+        help_style = (
+            f"color: {T.TEXT_MUTED}; font-size: 8pt; "
+            f"font-style: italic; padding-left: 25px;"
+        )
+        self.help_auto_label.setStyleSheet(help_style)
+        self.help_ref_label.setStyleSheet(help_style)
+        self.help_manual_label.setStyleSheet(help_style)
+
+        # Astuce mode référence (teinte accent)
+        self.ref_info_label.setStyleSheet(
+            f"color: {T.ACCENT}; font-size: 8pt; padding: 5px;")
+
+        # Avertissement mode manuel (teinte alerte)
+        self.manual_warning_label.setStyleSheet(
+            f"color: {T.WARNING}; font-size: 8pt; padding: 5px;")
 
     def on_mode_changed(self, checked):
         """Gère l'exclusivité des 3 modes de détection (auto / référence / manuel).

@@ -13,7 +13,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 from core.compilation import FilePreview
-from ui.styles import EXCEL_GREEN, OFFICE_ORANGE
 from ui.styles import theme as T
 
 

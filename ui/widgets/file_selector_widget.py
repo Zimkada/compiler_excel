@@ -13,7 +13,6 @@ from PyQt6.QtGui import QFont
 from pathlib import Path
 from typing import List
 
-from ui.styles import EXCEL_GREEN, NEUTRAL_DARK
 from ui.styles import theme as T
 
 SUPPORTED_EXTENSIONS = ['.xlsx', '.xls', '.xlsm', '.csv', '.tsv']
@@ -35,6 +34,7 @@ class FileSelectorWidget(QWidget):
         self.all_files = []  # Tous les fichiers du dossier
         self.setup_ui()
         self.setAcceptDrops(True)  # Activer le glisser-déposer de fichiers
+        T.manager.theme_changed.connect(self.apply_theme)
 
     def setup_ui(self):
         """Configure l'interface du widget"""
@@ -48,7 +48,7 @@ class FileSelectorWidget(QWidget):
         # Sélection du dossier
         dir_layout = QHBoxLayout()
         self.label_directory = QLabel("Aucun dossier sélectionné")
-        self.label_directory.setStyleSheet(f"color: {NEUTRAL_DARK}; padding: 5px;")
+        self.label_directory.setStyleSheet(f"color: {T.TEXT_SECONDARY}; padding: 5px;")
 
         self.button_choose_directory = QPushButton("📂 Choisir un dossier")
         self.button_choose_directory.setFont(QFont("Segoe UI", 9))
@@ -63,11 +63,6 @@ class FileSelectorWidget(QWidget):
         # Indice glisser-déposer
         self.drop_hint = QLabel("⤓  Glissez-déposez vos fichiers Excel/CSV ici")
         self.drop_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.drop_hint.setStyleSheet(
-            f"color: {T.TEXT_MUTED}; font-size: {T.FONT_SIZE_SM}pt; "
-            f"border: 1.5px dashed {T.BORDER_STRONG}; border-radius: {T.RADIUS_MD}px; "
-            f"padding: 14px; margin-top: 4px;"
-        )
         group_layout.addWidget(self.drop_hint)
 
         # Barre de sélection
@@ -76,7 +71,7 @@ class FileSelectorWidget(QWidget):
         self.checkbox_select_all.stateChanged.connect(self.toggle_select_all)
 
         self.label_file_count = QLabel("0 fichier sélectionné")
-        self.label_file_count.setStyleSheet(f"color: {NEUTRAL_DARK}; font-weight: bold;")
+        self.label_file_count.setStyleSheet(f"color: {T.TEXT_SECONDARY}; font-weight: bold;")
 
         selection_bar.addWidget(self.checkbox_select_all)
         selection_bar.addStretch()
@@ -95,6 +90,16 @@ class FileSelectorWidget(QWidget):
 
         group.setLayout(group_layout)
         layout.addWidget(group)
+
+        self.apply_theme()
+
+    def apply_theme(self):
+        """(Ré)applique les styles inline dépendant du thème actif."""
+        self.label_directory.setStyleSheet(
+            f"color: {T.TEXT_SECONDARY}; padding: 5px;")
+        self.label_file_count.setStyleSheet(
+            f"color: {T.TEXT_SECONDARY}; font-weight: bold;")
+        self._reset_drop_hint_style()
 
     def choose_directory(self):
         """Ouvre dialogue de sélection de dossier"""

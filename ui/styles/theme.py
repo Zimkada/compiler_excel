@@ -3,54 +3,36 @@ Design system premium — ExcelCompiler.
 
 Source unique de vérité pour la direction artistique : palette, échelle
 d'espacement, rayons, typographie et feuille de style globale (QSS) appliquée
-à toute l'application. Style « premium clair épuré » (inspiration Notion /
-Linear / Microsoft 365) avec le vert Excel comme couleur d'accent.
+à toute l'application. Style « premium » (inspiration Notion / Linear /
+Microsoft 365) avec le vert Excel comme couleur d'accent.
+
+Deux thèmes sont fournis : « light » (clair épuré) et « dark » (sombre moderne
+et cohérent). Le thème actif est piloté par :class:`ThemeManager` ; les tokens
+de couleur exposés au niveau module (``ACCENT``, ``BG_APP``, ``TEXT_PRIMARY``…)
+sont rebindés à chaque changement de thème, de sorte que tout code lisant
+``theme.TEXT_PRIMARY`` obtient toujours la valeur du thème courant.
 
 Réutilise et étend la palette historique de excel_theme.py (compatibilité).
 """
 
-# ── Couleur d'accent (signature Excel) ──────────────────────────────────────
-ACCENT = "#217346"           # vert Excel
-ACCENT_HOVER = "#1B5E3A"     # accent plus profond (survol)
-ACCENT_PRESSED = "#14462A"   # accent enfoncé
-ACCENT_SOFT = "#E7F3EC"      # fond teinté accent (très clair)
-ACCENT_BORDER = "#BFE0CB"    # bordure teintée accent
+from PyQt6.QtCore import QObject, pyqtSignal
 
-# ── Neutres (gris froids, lisibles) ─────────────────────────────────────────
-BG_APP = "#F7F8FA"           # fond général de l'application
-BG_SURFACE = "#FFFFFF"       # surfaces / cartes
-BG_SUBTLE = "#F1F3F5"        # zones légèrement en retrait (hover discret)
-BORDER = "#E6E8EB"           # bordures de cartes / séparateurs
-BORDER_STRONG = "#D5D9DE"    # bordures de champs interactifs
 
-TEXT_PRIMARY = "#1A1D21"     # titres / texte principal
-TEXT_SECONDARY = "#5B636B"   # texte secondaire
-TEXT_MUTED = "#8A929B"       # texte tertiaire / placeholder
-TEXT_ON_ACCENT = "#FFFFFF"
+# ── Tokens non chromatiques (identiques quel que soit le thème) ──────────────
 
-# ── Sémantique ──────────────────────────────────────────────────────────────
-SUCCESS = "#1E7E45"
-SUCCESS_SOFT = "#E7F3EC"
-WARNING = "#B7791F"
-WARNING_SOFT = "#FEF4E2"
-DANGER = "#C0392B"
-DANGER_SOFT = "#FBEAE8"
-INFO = "#2563EB"
-INFO_SOFT = "#E8EFFD"
-
-# ── Échelle d'espacement (pas de 4px) ───────────────────────────────────────
+# Échelle d'espacement (pas de 4px)
 SPACE_XS = 4
 SPACE_SM = 8
 SPACE_MD = 16
 SPACE_LG = 24
 SPACE_XL = 32
 
-# ── Rayons ──────────────────────────────────────────────────────────────────
+# Rayons
 RADIUS_SM = 6
 RADIUS_MD = 10
 RADIUS_LG = 14
 
-# ── Typographie ─────────────────────────────────────────────────────────────
+# Typographie
 FONT_FAMILY = "Segoe UI"
 FONT_SIZE_BASE = 10          # pt
 FONT_SIZE_SM = 9
@@ -59,8 +41,143 @@ FONT_SIZE_TITLE = 22
 FONT_SIZE_SUBTITLE = 11
 
 
+# ── Palettes ─────────────────────────────────────────────────────────────────
+# Chaque palette définit le même jeu de clés. Les tokens de couleur du module
+# sont injectés depuis la palette active par ``set_theme``.
+
+LIGHT_PALETTE = {
+    # Accent (signature Excel)
+    "ACCENT": "#217346",          # vert Excel
+    "ACCENT_HOVER": "#1B5E3A",    # accent plus profond (survol)
+    "ACCENT_PRESSED": "#14462A",  # accent enfoncé
+    "ACCENT_SOFT": "#E7F3EC",     # fond teinté accent (très clair)
+    "ACCENT_BORDER": "#BFE0CB",   # bordure teintée accent
+
+    # Neutres (gris froids, lisibles)
+    "BG_APP": "#F7F8FA",          # fond général de l'application
+    "BG_SURFACE": "#FFFFFF",      # surfaces / cartes
+    "BG_SUBTLE": "#F1F3F5",       # zones légèrement en retrait (hover discret)
+    "BORDER": "#E6E8EB",          # bordures de cartes / séparateurs
+    "BORDER_STRONG": "#D5D9DE",   # bordures de champs interactifs
+
+    "TEXT_PRIMARY": "#1A1D21",    # titres / texte principal
+    "TEXT_SECONDARY": "#5B636B",  # texte secondaire
+    "TEXT_MUTED": "#8A929B",      # texte tertiaire / placeholder
+    "TEXT_ON_ACCENT": "#FFFFFF",
+
+    # Sémantique
+    "SUCCESS": "#1E7E45",
+    "SUCCESS_SOFT": "#E7F3EC",
+    "WARNING": "#B7791F",
+    "WARNING_SOFT": "#FEF4E2",
+    "DANGER": "#C0392B",
+    "DANGER_SOFT": "#FBEAE8",
+    "INFO": "#2563EB",
+    "INFO_SOFT": "#E8EFFD",
+}
+
+DARK_PALETTE = {
+    # Accent : vert Excel un peu plus lumineux pour rester vif sur fond sombre
+    "ACCENT": "#2EA065",          # vert Excel éclairci (contraste sur sombre)
+    "ACCENT_HOVER": "#37B373",
+    "ACCENT_PRESSED": "#268A57",
+    "ACCENT_SOFT": "#16302450",   # voile vert translucide (sur surfaces sombres)
+    "ACCENT_BORDER": "#2C5C42",   # bordure teintée accent, discrète
+
+    # Neutres sombres (bleu-ardoise profond, pas de noir pur — plus premium)
+    "BG_APP": "#0F1216",          # fond général
+    "BG_SURFACE": "#181C22",      # surfaces / cartes
+    "BG_SUBTLE": "#22272F",       # zones en retrait (hover discret)
+    "BORDER": "#2A313A",          # bordures de cartes / séparateurs
+    "BORDER_STRONG": "#3A434F",   # bordures de champs interactifs
+
+    "TEXT_PRIMARY": "#ECEFF3",    # titres / texte principal
+    "TEXT_SECONDARY": "#A9B2BD",  # texte secondaire
+    "TEXT_MUTED": "#6B7480",      # texte tertiaire / placeholder
+    "TEXT_ON_ACCENT": "#FFFFFF",
+
+    # Sémantique (teintes vives lisibles sur fond sombre)
+    "SUCCESS": "#3CCB7F",
+    "SUCCESS_SOFT": "#16302450",
+    "WARNING": "#E0A93B",
+    "WARNING_SOFT": "#3A2E1450",
+    "DANGER": "#F1675C",
+    "DANGER_SOFT": "#3A1E1C50",
+    "INFO": "#5B9BFF",
+    "INFO_SOFT": "#1B2A4550",
+}
+
+PALETTES = {"light": LIGHT_PALETTE, "dark": DARK_PALETTE}
+
+# Clés de couleur exposées comme tokens au niveau module.
+_COLOR_KEYS = tuple(LIGHT_PALETTE.keys())
+
+# Thème actif courant (nom). Rebindé par ``set_theme``.
+current_theme = "light"
+
+
+def set_theme(mode: str) -> None:
+    """Active le thème ``mode`` ("light" ou "dark").
+
+    Injecte les couleurs de la palette correspondante dans les tokens du
+    module (``ACCENT``, ``BG_APP``…). Tout code lisant ``theme.TEXT_PRIMARY``
+    après cet appel obtient la valeur du thème actif.
+    """
+    global current_theme
+    if mode not in PALETTES:
+        mode = "light"
+    current_theme = mode
+    palette = PALETTES[mode]
+    globals().update(palette)
+
+
+# Initialiser les tokens au thème par défaut dès l'import.
+set_theme(current_theme)
+
+
+class ThemeManager(QObject):
+    """Hub central du thème : conserve le mode actif et notifie l'UI.
+
+    - ``theme_changed`` est émis avec le nom du thème après chaque bascule.
+    - Les widgets qui appliquent des styles inline se connectent à ce signal
+      et ré-appliquent leurs styles via leur méthode ``apply_theme``.
+    """
+
+    theme_changed = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+
+    @property
+    def mode(self) -> str:
+        return current_theme
+
+    def is_dark(self) -> bool:
+        return current_theme == "dark"
+
+    def set_mode(self, mode: str) -> None:
+        """Change le thème et notifie les abonnés (idempotent)."""
+        if mode == current_theme:
+            return
+        set_theme(mode)
+        self.theme_changed.emit(current_theme)
+
+    def toggle(self) -> str:
+        """Bascule clair ↔ sombre et retourne le nouveau mode."""
+        self.set_mode("light" if current_theme == "dark" else "dark")
+        return current_theme
+
+
+# Instance partagée par toute l'application.
+manager = ThemeManager()
+
+
 def build_stylesheet() -> str:
-    """Construit la feuille de style globale appliquée à QApplication."""
+    """Construit la feuille de style globale appliquée à QApplication.
+
+    Lit les tokens du module : appeler après ``set_theme`` (ou après une
+    bascule via :class:`ThemeManager`) produit le QSS du thème actif.
+    """
     return f"""
     /* ===== Base ===== */
     QWidget {{
@@ -71,9 +188,9 @@ def build_stylesheet() -> str:
     }}
 
     QToolTip {{
-        background-color: {TEXT_PRIMARY};
-        color: {BG_SURFACE};
-        border: none;
+        background-color: {BG_SURFACE};
+        color: {TEXT_PRIMARY};
+        border: 1px solid {BORDER};
         padding: 6px 10px;
         border-radius: {RADIUS_SM}px;
         font-size: {FONT_SIZE_SM}pt;
@@ -105,6 +222,7 @@ def build_stylesheet() -> str:
         border: 1px solid {BORDER_STRONG};
         border-radius: {RADIUS_SM}px;
         padding: 7px 10px;
+        color: {TEXT_PRIMARY};
         selection-background-color: {ACCENT_SOFT};
         selection-color: {TEXT_PRIMARY};
     }}
@@ -124,6 +242,7 @@ def build_stylesheet() -> str:
     }}
     QComboBox QAbstractItemView {{
         background-color: {BG_SURFACE};
+        color: {TEXT_PRIMARY};
         border: 1px solid {BORDER};
         border-radius: {RADIUS_SM}px;
         selection-background-color: {ACCENT_SOFT};
@@ -274,11 +393,17 @@ def build_stylesheet() -> str:
         border-radius: {RADIUS_SM}px;
     }}
 
-    /* ===== Text browsers (À propos, résultats) ===== */
-    QTextBrowser {{
+    /* ===== Text browsers / éditeurs (À propos, résultats, logs) ===== */
+    QTextBrowser, QTextEdit {{
         background-color: {BG_SURFACE};
+        color: {TEXT_PRIMARY};
         border: 1px solid {BORDER};
         border-radius: {RADIUS_MD}px;
         padding: 12px;
+    }}
+
+    /* ===== Dialogues ===== */
+    QDialog {{
+        background-color: {BG_APP};
     }}
     """
