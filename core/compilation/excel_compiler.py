@@ -449,6 +449,9 @@ class ExcelCompiler:
         # l'aplatissement des en-têtes, activé par défaut). En multi-lignes on
         # conserve l'ajustement positionnel historique.
         aligner = ColumnAligner() if self.options.align_columns_by_label else None
+        # Index dans combined_data des lignes d'en-tête répétées (mode aligneur) :
+        # réécrites au schéma final après la boucle, car celui-ci peut s'élargir.
+        repeated_header_rows: List[int] = []
 
         # Charger les informations préliminaires si demandées
         if self.options.include_preliminary and self.options.preliminary_source_file:
@@ -540,7 +543,14 @@ class ExcelCompiler:
                 # Ajouter les en-têtes répétés si demandé
                 if self._effective_repeat_headers and i > 0:
                     # Utiliser les en-têtes globaux (qui incluent "Fichier source" si nécessaire)
-                    combined_data.extend(global_headers)
+                    if aligner is not None and aligner.initialized:
+                        # Le schéma peut encore s'élargir : mémoriser les positions
+                        # pour réécrire ces lignes au libellé final après la boucle.
+                        for hdr_row in global_headers:
+                            repeated_header_rows.append(len(combined_data))
+                            combined_data.append(list(hdr_row))
+                    else:
+                        combined_data.extend(global_headers)
 
                 # Ajouter les données
                 combined_data.extend(file_data)
@@ -586,6 +596,11 @@ class ExcelCompiler:
                 row + [None] * (width - len(row)) if len(row) < width else row
                 for row in combined_data
             ]
+            # Réécrire les en-têtes répétés au schéma final (ils ont pu être
+            # insérés avant l'élargissement -> sinon un libellé manquerait).
+            final_header = aligner.schema_labels()
+            for pos in repeated_header_rows:
+                combined_data[pos] = list(final_header)
 
         # Ajouter les informations préliminaires au début si demandées
         if preliminary_info and combined_data:

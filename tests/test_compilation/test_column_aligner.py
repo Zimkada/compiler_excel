@@ -129,6 +129,29 @@ class TestEndToEnd:
         assert pd.isna(df.iloc[2, 1])
         assert df.iloc[2, 2] == 20
 
+    def test_repeated_headers_reflect_final_schema(self, tmp_path):
+        # Régression audit S5-A3 : avec repeat_headers, une colonne apparue dans
+        # un fichier TARDIF doit aussi figurer dans les en-têtes répétés insérés
+        # AVANT son apparition (sinon l'en-tête répété est tronqué d'un libellé).
+        f1 = _make_xlsx(tmp_path / "f1.xlsx", [["Region", "Cas"], ["Nord", 10]])
+        f2 = _make_xlsx(tmp_path / "f2.xlsx", [["Region", "Cas"], ["Sud", 20]])
+        f3 = _make_xlsx(tmp_path / "f3.xlsx", [["Region", "Cas", "Annee"], ["Est", 30, 2024]])
+        df, res = self._compile(tmp_path, [f1, f2, f3], repeat_headers=True)
+        # Les en-têtes répétés (lignes 2 et 4) portent le schéma final complet.
+        assert list(df.iloc[2]) == ["Region", "Cas", "Annee"]
+        assert list(df.iloc[4]) == ["Region", "Cas", "Annee"]
+
+    def test_first_file_failure_second_becomes_reference(self, tmp_path):
+        # Régression audit S5-A4 : si le 1er fichier échoue, le 2e doit fournir
+        # le schéma de référence sans planter l'aligneur.
+        bad = tmp_path / "bad.xlsx"
+        bad.write_bytes(b"not an excel file")
+        f2 = _make_xlsx(tmp_path / "ok.xlsx", [["Region", "Cas"], ["Nord", 10]])
+        df, res = self._compile(tmp_path, [str(bad), f2])
+        assert list(df.iloc[0]) == ["Region", "Cas"]
+        assert list(df.iloc[1]) == ["Nord", 10]
+        assert res.failed_files == 1 and res.successful_files == 1
+
     def test_row_count_unchanged_by_alignment(self, tmp_path):
         # L'alignement ne change QUE les colonnes : le nombre de lignes par
         # fichier (donc l'invariant aperçu = sortie) reste intact.
