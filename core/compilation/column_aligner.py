@@ -44,7 +44,8 @@ def normalize_label(value) -> str:
     return " ".join(no_accents.lower().split())
 
 
-def _column_keys(label_row: Sequence) -> List[str]:
+def _column_keys(label_row: Sequence,
+                 aliases: Optional[dict] = None) -> List[str]:
     """Transforme une ligne de libellés en clés d'identité, en désambiguïsant
     les doublons et les colonnes sans nom.
 
@@ -52,7 +53,11 @@ def _column_keys(label_row: Sequence) -> List[str]:
       apparier les occurrences positionnellement sans les fusionner.
     - Une colonne sans libellé reçoit une clé positionnelle unique (jamais
       fusionnée avec une autre colonne vide).
+    - Si `aliases` (libellé_source_normalisé -> libellé_cible_normalisé) est
+      fourni, un libellé source aliasé prend l'identité de sa CIBLE : la colonne
+      fusionne alors avec la colonne cible du schéma (mapping manuel, étape 6).
     """
+    aliases = aliases or {}
     keys: List[str] = []
     seen: dict = {}
     for idx, raw in enumerate(label_row):
@@ -61,6 +66,8 @@ def _column_keys(label_row: Sequence) -> List[str]:
             # Colonne sans libellé : identité strictement positionnelle.
             keys.append(f"\x00empty\x00{idx}")
             continue
+        # Rattachement manuel : le libellé source devient son libellé cible.
+        norm = aliases.get(norm, norm)
         occ = seen.get(norm, 0)
         seen[norm] = occ + 1
         keys.append(f"{norm}#{occ}")
@@ -77,11 +84,18 @@ class ColumnAligner:
         final_header_row = aligner.schema_labels()        # à la fin
     """
 
-    def __init__(self):
+    def __init__(self, column_aliases: Optional[dict] = None):
         # Clés d'identité des colonnes du schéma global, dans l'ordre final.
         self._keys: List[str] = []
         # Libellé d'affichage associé à chaque clé (celui vu en premier).
         self._labels: List = []
+        # Alias manuels (étape 6), normalisés source -> cible. Appliqués aux
+        # fichiers projetés, jamais à la référence (qui définit les cibles).
+        self._aliases = {
+            normalize_label(k): normalize_label(v)
+            for k, v in (column_aliases or {}).items()
+            if normalize_label(k) and normalize_label(v)
+        }
 
     def set_reference(self, header_row: Sequence) -> None:
         """Initialise le schéma global à partir des libellés du 1er fichier."""
@@ -110,7 +124,7 @@ class ColumnAligner:
 
         Renvoie (lignes_alignées, libellés_des_colonnes_nouvelles_ajoutées).
         """
-        file_keys = _column_keys(header_row)
+        file_keys = _column_keys(header_row, self._aliases)
 
         # 1) Étendre le schéma avec les nouvelles colonnes (ordre d'apparition).
         new_labels: List = []

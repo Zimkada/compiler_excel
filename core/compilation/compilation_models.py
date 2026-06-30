@@ -111,6 +111,14 @@ class CompilationOptions:
     # retrouver le comportement positionnel (empilement par position + padding).
     align_columns_by_label: bool = True
 
+    # Alias de colonnes (v3.2, étape 6) — mapping manuel résolvant les cas que
+    # l'alignement par libellé n'ose pas deviner. Quand une colonne d'un fichier
+    # porte un libellé différent de celui du schéma (ex. « Sexe (M/F) » vs
+    # « Sexe »), l'utilisateur la rattache explicitement : la clé est le libellé
+    # SOURCE, la valeur le libellé CIBLE du schéma global. Comparaison sans
+    # accents ni casse (comme l'alignement). Vide par défaut = aucun alias.
+    column_aliases: Dict[str, str] = field(default_factory=dict)
+
     # Options de performance
     enable_chunked_processing: bool = True
     chunk_size: int = 10000
@@ -145,6 +153,7 @@ class CompilationOptions:
             'subtotal_keywords': self.subtotal_keywords,
             'total_keywords': self.total_keywords,
             'align_columns_by_label': self.align_columns_by_label,
+            'column_aliases': dict(self.column_aliases),
             'enable_chunked_processing': self.enable_chunked_processing,
             'chunk_size': self.chunk_size,
             'max_memory_percent': self.max_memory_percent

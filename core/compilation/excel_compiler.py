@@ -448,7 +448,10 @@ class ExcelCompiler:
         # demandée ET si l'en-tête tient sur une seule ligne (cas couvert par
         # l'aplatissement des en-têtes, activé par défaut). En multi-lignes on
         # conserve l'ajustement positionnel historique.
-        aligner = ColumnAligner() if self.options.align_columns_by_label else None
+        aligner = (
+            ColumnAligner(self.options.column_aliases)
+            if self.options.align_columns_by_label else None
+        )
         # Index dans combined_data des lignes d'en-tête répétées (mode aligneur) :
         # réécrites au schéma final après la boucle, car celui-ci peut s'élargir.
         repeated_header_rows: List[int] = []

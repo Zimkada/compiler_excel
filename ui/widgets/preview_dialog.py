@@ -81,8 +81,18 @@ class PreviewDialog(QDialog):
         scroll.setWidget(content)
         layout.addWidget(scroll, stretch=1)
 
-        # Bouton fermer
+        # Boutons : rattacher les colonnes (multi-fichiers) + fermer
         button_row = QHBoxLayout()
+        # Le rattachement n'a de sens qu'avec ≥ 2 fichiers lisibles à aligner.
+        ok_files = [p for p in self.previews if p.success]
+        if self._compiler is not None and len(ok_files) >= 2:
+            map_btn = QPushButton("🔗 Rattacher les colonnes")
+            map_btn.setToolTip(
+                "Rattacher manuellement une colonne portant un libellé différent "
+                "à une colonne du schéma de référence (1er fichier)."
+            )
+            map_btn.clicked.connect(self._open_column_mapper)
+            button_row.addWidget(map_btn)
         button_row.addStretch()
         close_btn = QPushButton("Fermer")
         close_btn.setMinimumWidth(100)
@@ -181,6 +191,17 @@ class PreviewDialog(QDialog):
             card_layout.addWidget(warn)
 
         return card
+
+    def _open_column_mapper(self):
+        """Ouvre le dialogue de rattachement des colonnes et enregistre les
+        alias choisis dans les options du compilateur (relues par l'appelant)."""
+        from ui.widgets.column_mapper_dialog import ColumnMapperDialog
+
+        dlg = ColumnMapperDialog(
+            self.previews, parent=self,
+            aliases=self._compiler.options.column_aliases,
+        )
+        dlg.exec()
 
     def _open_picker(self, file_path: str):
         """Ouvre le sélecteur visuel d'en-tête pour un fichier, applique le

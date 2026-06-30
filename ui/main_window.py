@@ -37,6 +37,9 @@ class MainWindow(QMainWindow):
         # Corrections manuelles d'en-tête par fichier, choisies dans l'aperçu
         # et appliquées à la compilation. {chemin: (header_start_row, header_rows)}
         self._manual_overrides = {}
+        # Rattachements manuels de colonnes (étape 6), choisis dans l'aperçu.
+        # {libellé_source: libellé_cible_du_schéma}
+        self._column_aliases = {}
         self.setup_ui()
         self.connect_signals()
         T.get_manager().theme_changed.connect(self.apply_theme)
@@ -586,6 +589,7 @@ class MainWindow(QMainWindow):
         options = self.options_widget.get_compilation_options()
         # Appliquer les corrections manuelles déjà choisies (priorité absolue).
         options.manual_overrides = dict(self._manual_overrides)
+        options.column_aliases = dict(self._column_aliases)
 
         self.status_label.setText("Analyse de la détection en cours...")
         QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
@@ -610,6 +614,8 @@ class MainWindow(QMainWindow):
             compiler=compiler, overrides=options.manual_overrides,
         ).exec()
         self._manual_overrides = dict(options.manual_overrides)
+        # Récupérer les rattachements de colonnes éventuellement choisis.
+        self._column_aliases = dict(compiler.options.column_aliases)
 
     def start_compilation(self):
         """Démarre la compilation"""
@@ -647,6 +653,8 @@ class MainWindow(QMainWindow):
         options.manual_overrides = {
             f: v for f, v in self._manual_overrides.items() if f in selected_files
         }
+        # Appliquer les rattachements manuels de colonnes (étape 6).
+        options.column_aliases = dict(self._column_aliases)
 
         logger.info(f"Démarrage compilation: {len(selected_files)} fichiers")
         logger.info(f"Fichier de sortie: {output_file}")
