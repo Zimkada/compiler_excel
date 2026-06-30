@@ -194,6 +194,56 @@ class OptionsWidget(QWidget):
         compilation_group.setLayout(compilation_layout)
         layout.addWidget(compilation_group)
 
+        # === SECTION 2bis: ROBUSTESSE DES TABLEAUX ===
+        robustness_group = QGroupBox("🧩 Robustesse des tableaux")
+        robustness_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+        robustness_layout = QVBoxLayout()
+
+        # Dé-fusion des cellules fusionnées
+        self.checkbox_unmerge_cells = QCheckBox("Propager les cellules fusionnées")
+        self.checkbox_unmerge_cells.setChecked(True)
+        self.checkbox_unmerge_cells.setToolTip(
+            "Recopie la valeur d'une cellule fusionnée sur toute sa plage "
+            "(ex. un département fusionné verticalement est répété sur chaque ligne)."
+        )
+        self.checkbox_unmerge_cells.toggled.connect(self.options_changed.emit)
+
+        # Aplatissement des en-têtes multi-lignes
+        self.checkbox_flatten_headers = QCheckBox("Fusionner les en-têtes multi-lignes")
+        self.checkbox_flatten_headers.setChecked(True)
+        self.checkbox_flatten_headers.setToolTip(
+            "Fusionne un en-tête réparti sur plusieurs lignes en un seul libellé "
+            "par colonne (ex. « NOMBRE DE CAS - 1er cycle »)."
+        )
+        self.checkbox_flatten_headers.toggled.connect(self.options_changed.emit)
+
+        # Lignes de sous-total / total
+        self.checkbox_drop_subtotals = QCheckBox("Exclure les lignes de total / sous-total")
+        self.checkbox_drop_subtotals.setChecked(True)
+        self.checkbox_drop_subtotals.setToolTip(
+            "Retire les lignes d'agrégat (ENSEMBLE, TOTAL…) pour éviter le double "
+            "comptage. Décochez pour les conserver."
+        )
+        self.checkbox_drop_subtotals.toggled.connect(self.on_drop_subtotals_toggled)
+
+        self.checkbox_mark_subtotals = QCheckBox(
+            "    ↳ Si conservées, ajouter une colonne « Type de ligne »")
+        self.checkbox_mark_subtotals.setChecked(True)
+        self.checkbox_mark_subtotals.setToolTip(
+            "Quand les totaux sont conservés, ajoute une colonne marquant chaque "
+            "ligne (détail / sous-total / total) pour un filtrage propre."
+        )
+        self.checkbox_mark_subtotals.setEnabled(False)  # actif seulement si on conserve
+        self.checkbox_mark_subtotals.toggled.connect(self.options_changed.emit)
+
+        robustness_layout.addWidget(self.checkbox_unmerge_cells)
+        robustness_layout.addWidget(self.checkbox_flatten_headers)
+        robustness_layout.addWidget(self.checkbox_drop_subtotals)
+        robustness_layout.addWidget(self.checkbox_mark_subtotals)
+
+        robustness_group.setLayout(robustness_layout)
+        layout.addWidget(robustness_group)
+
         # === SECTION 3: OPTIONS AVANCÉES ===
         advanced_group = QGroupBox("🔧 Options avancées")
         advanced_group.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
@@ -303,6 +353,14 @@ class OptionsWidget(QWidget):
         self.lineedit_sort_column.setEnabled(checked)
         self.options_changed.emit()
 
+    def on_drop_subtotals_toggled(self, checked):
+        """La case « marquer » n'a de sens que si on CONSERVE les totaux.
+
+        Quand on exclut (case cochée), marquer est sans objet -> désactivé.
+        """
+        self.checkbox_mark_subtotals.setEnabled(not checked)
+        self.options_changed.emit()
+
     def get_compilation_options(self) -> CompilationOptions:
         """
         Construit les options de compilation selon le mode choisi
@@ -347,6 +405,11 @@ class OptionsWidget(QWidget):
             sort_data=self.checkbox_sort_data.isChecked(),
             sort_column=sort_column_index,
             date_format=date_format,
+            # Robustesse des tableaux (v3.2)
+            unmerge_cells=self.checkbox_unmerge_cells.isChecked(),
+            flatten_multiindex_headers=self.checkbox_flatten_headers.isChecked(),
+            drop_subtotal_rows=self.checkbox_drop_subtotals.isChecked(),
+            mark_subtotal_rows=self.checkbox_mark_subtotals.isChecked(),
         )
 
         if self.checkbox_auto_mode.isChecked():
