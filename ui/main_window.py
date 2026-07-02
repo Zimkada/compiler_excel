@@ -639,6 +639,27 @@ class MainWindow(QMainWindow):
         # Récupérer les rattachements de colonnes éventuellement choisis.
         self._column_aliases = dict(compiler.options.column_aliases)
 
+    @staticmethod
+    def _ensure_output_extension(filename: str, output_format) -> str:
+        """Garantit que le nom de sortie porte l'extension du format choisi.
+
+        Ex. format CSV mais nom « compilation.xlsx » -> « compilation.csv ».
+        Évite d'écrire un contenu CSV/TSV dans un fichier .xlsx (illisible par
+        Excel). Une extension déjà correcte est laissée telle quelle.
+        """
+        from core.compilation import OutputFormat
+        ext_by_format = {
+            OutputFormat.XLSX: '.xlsx',
+            OutputFormat.CSV: '.csv',
+            OutputFormat.TSV: '.tsv',
+        }
+        target_ext = ext_by_format.get(output_format, '.xlsx')
+        stem = Path(filename).stem
+        # Nom vide ou réduit à une extension (« .csv ») -> stem par défaut.
+        if not stem or stem.startswith('.'):
+            stem = 'compilation'
+        return f"{stem}{target_ext}"
+
     def start_compilation(self):
         """Démarre la compilation"""
         # Vérifier qu'il y a des fichiers sélectionnés
@@ -661,13 +682,49 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Récupérer les options et le format
+        options = self.options_widget.get_compilation_options()
+        output_format = self.options_widget.get_output_format()
+
+        # F1 — synchroniser l'extension du fichier de sortie avec le format
+        # choisi : sinon on écrirait un contenu CSV dans un fichier .xlsx
+        # (qu'Excel refuserait d'ouvrir). On corrige l'extension au besoin.
+        output_filename = self._ensure_output_extension(output_filename, output_format)
+
         # Créer le chemin complet: même dossier que les fichiers sources
         source_directory = Path(selected_files[0]).parent
         output_file = str(source_directory / output_filename)
 
-        # Récupérer les options
-        options = self.options_widget.get_compilation_options()
-        output_format = self.options_widget.get_output_format()
+        # F3 — ne jamais compiler le fichier de sortie lui-même : s'il figure
+        # dans la sélection (dossier déjà compilé auparavant), le retirer.
+        # Sinon la sortie précédente serait réinjectée, doublant les données.
+        output_resolved = Path(output_file).resolve()
+        filtered = [f for f in selected_files
+                    if Path(f).resolve() != output_resolved]
+        if len(filtered) != len(selected_files):
+            logger.info("Fichier de sortie retiré de la sélection (auto-inclusion évitée)")
+            selected_files = filtered
+        if not selected_files:
+            QMessageBox.warning(
+                self, "Aucun fichier",
+                "Le seul fichier sélectionné est le fichier de sortie. "
+                "Sélectionnez d'autres fichiers à compiler."
+            )
+            self.button_compile.setEnabled(True)
+            return
+
+        # F2 — confirmer l'écrasement si le fichier de sortie existe déjà.
+        if Path(output_file).exists():
+            reply = QMessageBox.question(
+                self, "Fichier existant",
+                f"Le fichier « {output_filename} » existe déjà dans ce dossier.\n\n"
+                "Voulez-vous le remplacer ?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self.button_compile.setEnabled(True)
+                return
 
         # Appliquer les corrections manuelles d'en-tête choisies dans l'aperçu
         # (priorité absolue sur la détection), en ne gardant que les fichiers

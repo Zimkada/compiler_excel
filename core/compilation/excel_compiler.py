@@ -323,6 +323,16 @@ class ExcelCompiler:
                           "elles sont ignorées (seules les cellules sont lues).")
                 warning = f"{warning} · {notice}" if warning else notice
 
+            # Classeur multi-feuilles : seule la première est compilée. Avertir,
+            # sinon des données sur les autres feuilles seraient oubliées sans
+            # que l'utilisateur le sache (résultat faux silencieux).
+            if ext in ['.xlsx', '.xlsm']:
+                sheets = self._sheet_names(file_path)
+                if len(sheets) > 1:
+                    notice = (f"Ce classeur a {len(sheets)} feuilles ; seule la "
+                              f"première (« {sheets[0]} ») est compilée.")
+                    warning = f"{warning} · {notice}" if warning else notice
+
             return FilePreview(
                 file_path=file_path,
                 success=True,
@@ -607,6 +617,16 @@ class ExcelCompiler:
                         f"{Path(file_path).name}: {n_sub} ligne(s) de total {action}"
                     )
 
+                # Signaler un classeur multi-feuilles : seule la première est
+                # compilée (les données des autres feuilles seraient oubliées).
+                if Path(file_path).suffix.lower() in ['.xlsx', '.xlsm']:
+                    sheets = self._sheet_names(file_path)
+                    if len(sheets) > 1:
+                        result.warnings.append(
+                            f"{Path(file_path).name}: {len(sheets)} feuilles, "
+                            f"seule « {sheets[0]} » a été compilée"
+                        )
+
             except CompilationCancelled:
                 # L'annulation (déclenchée pendant l'extraction d'un gros
                 # fichier) ne doit PAS être traitée comme une erreur de fichier:
@@ -739,6 +759,25 @@ class ExcelCompiler:
                 )
         except Exception:
             return False
+
+    @staticmethod
+    def _sheet_names(file_path: str) -> List[str]:
+        """Noms des feuilles du classeur, dans l'ordre, sans le parser
+        entièrement (lecture du seul workbook.xml). Liste vide en cas de doute.
+
+        Seule la PREMIÈRE feuille est compilée ; ce helper sert à avertir
+        l'utilisateur quand un classeur en compte plusieurs (données oubliées
+        sur les autres feuilles = résultat faux silencieux, sinon).
+        """
+        try:
+            import xml.etree.ElementTree as ET
+            ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+            with zipfile.ZipFile(file_path) as z:
+                root = ET.fromstring(z.read("xl/workbook.xml"))
+            return [sh.get("name") for sh in root.iter(f"{{{ns}}}sheet")
+                    if sh.get("name")]
+        except Exception:
+            return []
 
     def _load_single_file(self, file_path: str,
                          detection: Optional[DetectionResult],
