@@ -76,11 +76,25 @@ class ExcelFormatter:
 
         return current_row
 
+    # Au-delà de ce nombre de lignes de données, on n'applique plus de bordure
+    # cellule par cellule : sur 50 000 lignes × 12 colonnes = 600 000 cellules,
+    # instancier et affecter un objet Border par cellule dominait le temps
+    # d'écriture (mesuré : ~7 min). La bordure est purement cosmétique ; au-delà
+    # du seuil on l'omet pour rester rapide (le tableau reste lisible, en-têtes
+    # stylés et volets figés). En deçà, on conserve le rendu bordé complet.
+    BORDER_ROW_LIMIT = 5000
+
     @staticmethod
     def write_data(worksheet, data: List[List], start_row: int,
                    date_format: str = "FRENCH") -> int:
         """
-        Écrit les données avec bordures et format de date
+        Écrit les données rapidement, avec format de date et bordures adaptatives.
+
+        Chemin rapide : les lignes sont ajoutées via ``worksheet.append`` (bien
+        plus rapide que ``worksheet.cell(...)`` répété). Les bordures ne sont
+        appliquées que sous ``BORDER_ROW_LIMIT`` lignes (au-delà, elles coûtent
+        trop cher pour un gain purement cosmétique). Le format de date n'est
+        posé que sur les cellules réellement datetime.
 
         Args:
             worksheet: Feuille de calcul openpyxl
@@ -91,49 +105,68 @@ class ExcelFormatter:
         Returns:
             Numéro de la ligne suivante
         """
-        current_row = start_row
         excel_date_format = DATE_FORMATS_EXCEL.get(date_format, "dd/mm/yyyy")
+        apply_borders = len(data) <= ExcelFormatter.BORDER_ROW_LIMIT
+        border = ExcelFormatter.DATA_BORDER
 
+        current_row = start_row
         for row_data in data:
-            for col_idx, value in enumerate(row_data, 1):
-                cell = worksheet.cell(row=current_row, column=col_idx, value=value)
-                cell.border = ExcelFormatter.DATA_BORDER
+            # append place la ligne d'un coup à la fin (rapide). On ne repasse
+            # sur les cellules que si un style ponctuel est nécessaire.
+            worksheet.append(list(row_data))
 
-                # Appliquer format de date si nécessaire
-                if isinstance(value, datetime):
-                    cell.number_format = excel_date_format
+            if apply_borders or any(isinstance(v, datetime) for v in row_data):
+                for col_idx, value in enumerate(row_data, 1):
+                    cell = worksheet.cell(row=current_row, column=col_idx)
+                    if apply_borders:
+                        cell.border = border
+                    if isinstance(value, datetime):
+                        cell.number_format = excel_date_format
 
             current_row += 1
 
         return current_row
 
+    # Nombre de lignes échantillonnées pour estimer la largeur des colonnes.
+    # Parcourir toutes les cellules (worksheet.columns matérialise TOUTE la
+    # feuille) coûtait autant que l'écriture elle-même sur les gros fichiers.
+    # Un échantillon de tête suffit à dimensionner correctement les colonnes.
+    WIDTH_SAMPLE_ROWS = 200
+
     @staticmethod
     def adjust_column_widths(worksheet, min_width: int = 10, max_width: int = 50):
         """
-        Ajuste automatiquement la largeur des colonnes
+        Ajuste la largeur des colonnes à partir d'un ÉCHANTILLON de lignes.
+
+        On lit au plus ``WIDTH_SAMPLE_ROWS`` lignes via iter_rows (accès
+        séquentiel rapide) au lieu de matérialiser toute la feuille via
+        ``worksheet.columns``. La largeur reste représentative : les libellés
+        d'en-tête et les premières lignes déterminent l'essentiel.
 
         Args:
             worksheet: Feuille de calcul openpyxl
             min_width: Largeur minimale
             max_width: Largeur maximale
         """
-        for column in worksheet.columns:
-            max_length = 0
-            column_letter = get_column_letter(column[0].column)
+        max_col = worksheet.max_column or 0
+        if max_col == 0:
+            return
+        max_lengths = [0] * max_col
 
-            for cell in column:
-                try:
-                    if cell.value is not None:
-                        cell_length = len(str(cell.value))
-                        if cell_length > max_length:
-                            max_length = cell_length
-                except (TypeError, AttributeError, ValueError):
-                    # Ignorer les erreurs de conversion
-                    pass
+        for row in worksheet.iter_rows(
+            min_row=1, max_row=min(worksheet.max_row, ExcelFormatter.WIDTH_SAMPLE_ROWS)
+        ):
+            for cell in row:
+                if cell.value is not None:
+                    col_i = cell.column - 1
+                    if 0 <= col_i < max_col:
+                        length = len(str(cell.value))
+                        if length > max_lengths[col_i]:
+                            max_lengths[col_i] = length
 
-            # Ajuster la largeur avec min/max
+        for col_i, max_length in enumerate(max_lengths, start=1):
             adjusted_width = max(min_width, min(max_length + 2, max_width))
-            worksheet.column_dimensions[column_letter].width = adjusted_width
+            worksheet.column_dimensions[get_column_letter(col_i)].width = adjusted_width
 
     @staticmethod
     def freeze_header(worksheet, freeze_row: int):

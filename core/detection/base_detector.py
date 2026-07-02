@@ -11,6 +11,57 @@ from pathlib import Path
 import pandas as pd
 
 
+def sniff_csv_separator(file_path: str, encoding: str = 'utf-8-sig') -> str:
+    """Devine le séparateur d'un CSV parmi ';', ',' et tabulation.
+
+    Un CSV « à la française » utilise le point-virgule (Excel FR l'exporte
+    ainsi, la virgule servant de séparateur décimal). Lu avec la virgule par
+    défaut, tout le contenu tombe dans UNE colonne — corruption silencieuse, ou
+    échec de tokenisation. On teste chaque candidat avec un vrai parseur CSV
+    (``csv.reader``, qui respecte les guillemets : un séparateur à l'intérieur
+    d'un champ entre guillemets ne compte pas) et on retient celui qui produit
+    le PLUS de colonnes de façon CONSISTANTE (mode des comptes >= 2). La
+    consistance départage : le bon séparateur donne le même nombre de colonnes
+    sur toutes les lignes ; un mauvais donne des comptes erratiques. Repli : ','.
+
+    Point de détection UNIQUE, partagé par les détecteurs (load_file) et le
+    moteur de compilation — garantit un séparateur identique partout.
+    """
+    import csv
+    from collections import Counter
+
+    candidates = [';', ',', '\t']
+    try:
+        with open(file_path, 'r', encoding=encoding, newline='') as f:
+            sample_lines = [line for _, line in zip(range(20), f)]
+    except OSError:
+        return ','
+    if not any(line.strip() for line in sample_lines):
+        return ','
+
+    best_sep, best_score = ',', (0.0, 0)  # (consistance, colonnes)
+    for sep in candidates:
+        try:
+            rows = list(csv.reader(sample_lines, delimiter=sep))
+        except csv.Error:
+            continue
+        col_counts = [len(r) for r in rows if any(c.strip() for c in r)]
+        if not col_counts:
+            continue
+        mode_cols, agree = Counter(col_counts).most_common(1)[0]
+        # CONSISTANCE d'abord (fraction de lignes au compte dominant), colonnes
+        # ensuite. Un mauvais séparateur produit des comptes erratiques : ex.
+        # une virgule réelle avec des ';' dans un champ entre guillemets donne
+        # ';' -> [1, 4, 4] (consistance 0.67) tandis que ',' -> [2, 2, 2]
+        # (consistance 1.0). Privilégier « plus de colonnes » choisissait ';'
+        # à tort ; la consistance tranche correctement en faveur de ','.
+        consistency = agree / len(col_counts)
+        score = (consistency, mode_cols)
+        if mode_cols >= 2 and score > best_score:
+            best_score, best_sep = score, sep
+    return best_sep
+
+
 def prune_phantom_columns(
     df: pd.DataFrame,
     min_abs: int = 3,
@@ -213,7 +264,9 @@ class BaseDetector(ABC):
             if ext in ['.xlsx', '.xlsm']:
                 df = pd.read_excel(file_path, header=None, nrows=nrows)
             elif ext == '.csv':
-                df = pd.read_csv(file_path, header=None, nrows=nrows, encoding='utf-8-sig')
+                sep = sniff_csv_separator(file_path)
+                df = pd.read_csv(file_path, header=None, nrows=nrows,
+                                 encoding='utf-8-sig', sep=sep, engine='python')
             elif ext in ['.tsv', '.txt']:
                 df = pd.read_csv(file_path, header=None, nrows=nrows,
                                 sep='\t', encoding='utf-8-sig')

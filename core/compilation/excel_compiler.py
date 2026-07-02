@@ -23,7 +23,7 @@ from .compilation_models import (
     OutputFormat
 )
 from ..detection import HybridDetector, ReferenceDetector, DetectionResult
-from ..detection.base_detector import prune_phantom_columns
+from ..detection.base_detector import prune_phantom_columns, sniff_csv_separator
 from .merge_handler import load_with_unmerge
 from .subtotal_detector import (
     classify_row, ROW_KIND_DETAIL,
@@ -273,15 +273,9 @@ class ExcelCompiler:
                 df = self._read_excel_df(file_path)
                 df, _ = prune_phantom_columns(df)
             elif ext == '.csv':
-                df = None
-                for enc in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
-                    try:
-                        df = pd.read_csv(file_path, header=None, encoding=enc)
-                        break
-                    except UnicodeDecodeError:
-                        continue
-                if df is None:
-                    raise ValueError("Impossible de décoder le fichier CSV")
+                # Même lecture (encodage + séparateur devinés) que la
+                # compilation -> aperçu fidèle (invariant aperçu = sortie).
+                df = self._read_csv_df(file_path)
             elif ext in ['.tsv', '.txt']:
                 df = pd.read_csv(file_path, header=None, sep='\t', encoding='utf-8-sig')
             else:
@@ -909,22 +903,29 @@ class ExcelCompiler:
             ]
         return data, headers, n_subtotal
 
+    def _read_csv_df(self, file_path: str) -> pd.DataFrame:
+        """Lit un CSV en DataFrame brut (header=None), en devinant encodage ET
+        séparateur (via sniff_csv_separator, partagé avec les détecteurs).
+        Point d'entrée UNIQUE de lecture CSV (compilation, aperçu, préliminaire).
+        """
+        encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
+        last_error: Optional[Exception] = None
+        for encoding in encodings:
+            try:
+                sep = sniff_csv_separator(file_path, encoding)
+                return pd.read_csv(file_path, header=None, encoding=encoding,
+                                   sep=sep, engine='python')
+            except UnicodeDecodeError as e:
+                last_error = e
+                continue
+        raise ValueError(f"Impossible de décoder {file_path}: {last_error}")
+
     def _load_csv_file(self, file_path: str,
                       detection: Optional[DetectionResult],
                       include_preliminary: bool) -> Tuple[Optional[List], List, Dict]:
-        """Charge un fichier CSV (similaire à Excel mais avec encodage)"""
-        # Essayer différents encodages
-        encodings = ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']
-
-        for encoding in encodings:
-            try:
-                df = pd.read_csv(file_path, header=None, encoding=encoding)
-                # Utiliser la même logique que Excel
-                return self._extract_data_from_dataframe(df, file_path, detection, include_preliminary)
-            except UnicodeDecodeError:
-                continue
-
-        raise ValueError(f"Impossible de décoder {file_path}")
+        """Charge un fichier CSV (séparateur et encodage détectés)."""
+        df = self._read_csv_df(file_path)
+        return self._extract_data_from_dataframe(df, file_path, detection, include_preliminary)
 
     def _load_tsv_file(self, file_path: str,
                       detection: Optional[DetectionResult],
@@ -1048,16 +1049,8 @@ class ExcelCompiler:
             if ext in ['.xlsx', '.xlsm']:
                 df = self._read_excel_df(source_file)
             elif ext == '.csv':
-                # Essayer différents encodages
-                df = None
-                for encoding in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
-                    try:
-                        df = pd.read_csv(source_file, header=None, encoding=encoding)
-                        break
-                    except UnicodeDecodeError:
-                        continue
-                if df is None:
-                    raise ValueError("Impossible de décoder le fichier CSV")
+                # Encodage + séparateur devinés (cohérent avec le reste).
+                df = self._read_csv_df(source_file)
             else:
                 self.logger.warning(f"Format non supporté pour preliminary: {ext}")
                 return []
