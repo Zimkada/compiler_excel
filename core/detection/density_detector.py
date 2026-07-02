@@ -192,21 +192,36 @@ class DensityDetector(BaseDetector):
         if header_start_idx is None:
             return None
 
-        # Déterminer le nombre de lignes d'en-tête
+        # Déterminer le nombre de lignes d'en-tête.
+        #
+        # Départage par le CONTENU (même recette que BorderDetector, juin 2026,
+        # cf. test_border_header_rows.py) : une ligne de données majoritairement
+        # textuelle (ex. « P0 | 0 | V0 », 2 textes / 1 nombre) satisfait
+        # is_likely_header et se faisait absorber dans l'en-tête — jusqu'à 21
+        # lignes d'en-tête détectées, corrompant data_start. On n'étend donc
+        # l'en-tête que si la ligne ne contient AUCUNE cellule numérique
+        # (les vrais en-têtes sont purement textuels), borné à 5 lignes.
+        #
+        # Garde-fou tableau 100% textuel : si aucune ligne suivante ne contient
+        # de nombre, le critère numérique n'a pas de butoir et engloutirait les
+        # données -> défaut sûr : 1 seule ligne d'en-tête.
         header_rows = 1
-        next_idx = header_start_idx + 1
-
-        # Vérifier si la ligne suivante est aussi un en-tête
-        while next_idx < len(density_profile):
-            next_row = density_profile[next_idx]
-
-            # Si la ligne suivante ressemble aussi à un en-tête, l'inclure
-            if (next_row['density'] >= self.header_density_min and
-                next_row['is_likely_header']):
-                header_rows += 1
-                next_idx += 1
-            else:
-                break
+        following_has_numbers = any(
+            density_profile[i]['number_count'] > 0
+            for i in range(header_start_idx + 1, len(density_profile))
+        )
+        if following_has_numbers:
+            next_idx = header_start_idx + 1
+            max_header_idx = min(header_start_idx + 4, len(density_profile) - 1)
+            while next_idx <= max_header_idx:
+                next_row = density_profile[next_idx]
+                if (next_row['density'] >= self.header_density_min and
+                        next_row['is_likely_header'] and
+                        next_row['number_count'] == 0):
+                    header_rows += 1
+                    next_idx += 1
+                else:
+                    break
 
         # Début des données
         data_start_idx = header_start_idx + header_rows

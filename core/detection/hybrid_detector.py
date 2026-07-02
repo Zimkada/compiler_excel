@@ -236,27 +236,59 @@ class HybridDetector(BaseDetector):
         Returns:
             DetectionResult combiné
         """
-        # Calculer le score pondéré
-        total_weight = 0
-        weighted_score = 0
-
-        for result in results:
-            method = result.detection_method
-            weight = weights.get(method, 0)
-            weighted_score += result.confidence * weight
-            total_weight += weight
-
-        combined_confidence = weighted_score / total_weight if total_weight > 0 else 0
-
-        # Voter pour les valeurs détectées
+        # Voter pour la ligne d'en-tête
         header_starts = [r.header_start_row for r in results]
-        header_rows_counts = [r.header_rows for r in results]
-        data_ends = [r.data_end_row for r in results]
 
-        # Utiliser la médiane pour être robuste aux outliers
-        voted_header_start = int(np.median(header_starts))
-        voted_header_rows = int(np.median(header_rows_counts))
-        voted_data_end = int(np.median(data_ends))
+        # Accord inter-détecteurs : quand >= 2 détecteurs indépendants pointent
+        # la MÊME ligne d'en-tête, cet accord est une preuve en soi. La moyenne
+        # pondérée, elle, DILUE : deux détecteurs corrects à 0.54 et 0.73
+        # donnaient 0.64 combiné — sous le seuil de 0.65, et la détection
+        # correcte était rejetée au profit du fallback manuel. En cas d'accord,
+        # la confiance = meilleure confiance individuelle + bonus, plafonnée.
+        agreed_start = None
+        for start in set(header_starts):
+            if header_starts.count(start) >= 2:
+                agreed_start = start
+                break
+
+        if agreed_start is not None:
+            agreeing = [r for r in results if r.header_start_row == agreed_start]
+            voted_header_start = agreed_start
+            combined_confidence = min(
+                0.95, max(r.confidence for r in agreeing) + 0.15
+            )
+            # Les votes suivants (header_rows, data_end) ne considèrent que les
+            # détecteurs d'accord sur l'en-tête : un détecteur qui s'est trompé
+            # de ligne n'a pas voix au chapitre sur le reste de la structure.
+            voters = agreeing
+        else:
+            # Désaccord : moyenne pondérée historique + médiane.
+            total_weight = 0
+            weighted_score = 0
+            for result in results:
+                weight = weights.get(result.detection_method, 0)
+                weighted_score += result.confidence * weight
+                total_weight += weight
+            combined_confidence = (
+                weighted_score / total_weight if total_weight > 0 else 0
+            )
+            voted_header_start = int(np.median(header_starts))
+            voters = results
+
+        # Nombre de lignes d'en-tête : écarter les valeurs aberrantes (> 5,
+        # symptôme d'un détecteur ayant absorbé des données dans l'en-tête,
+        # cf. bug DensityDetector header_rows=21) avant de prendre la médiane.
+        # Si tout est aberrant, défaut sûr : 1 ligne.
+        sane_header_rows = [r.header_rows for r in voters if 1 <= r.header_rows <= 5]
+        voted_header_rows = int(np.median(sane_header_rows)) if sane_header_rows else 1
+
+        # Fin des données : ne JAMAIS tronquer silencieusement. Si un détecteur
+        # dit « jusqu'au bout » (0) on garde 0 ; sinon on prend le MAX des fins
+        # candidates — garder trop de lignes est bénin (les lignes vides et
+        # totaux sont filtrés en aval), en perdre est destructeur. L'ancienne
+        # médiane pouvait couper la moitié des données sur simple désaccord.
+        data_ends = [r.data_end_row for r in voters]
+        voted_data_end = 0 if any(e == 0 for e in data_ends) else int(max(data_ends))
 
         # Choisir le résultat avec le header_start le plus proche du vote
         closest_result = min(
@@ -295,7 +327,10 @@ class HybridDetector(BaseDetector):
                     'header_rows': voted_header_rows,
                     'data_end': voted_data_end
                 },
-                'selection_reason': 'weighted_vote'
+                'selection_reason': (
+                    'detector_agreement' if agreed_start is not None
+                    else 'weighted_vote'
+                )
             }
         )
 

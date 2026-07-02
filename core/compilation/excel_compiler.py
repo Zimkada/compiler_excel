@@ -6,6 +6,7 @@ Version: 3.2
 
 import time
 import logging
+import zipfile
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple, Callable
 import pandas as pd
@@ -252,6 +253,15 @@ class ExcelCompiler:
                 warning = "Correction manuelle appliquée par l'utilisateur."
             elif structure['detection_used']:
                 warning = detection.warning
+            elif structure.get('rejected_confidence', 0) > 0:
+                # Une détection existait mais a été écartée (sous le seuil) :
+                # le dire, sinon l'utilisateur voit « Manuel » sans comprendre.
+                warning = (
+                    f"Détection écartée (confiance "
+                    f"{structure['rejected_confidence']:.0%} < seuil "
+                    f"{self.options.detection_confidence_threshold:.0%}) — "
+                    f"paramètres manuels appliqués. Vérifiez la ligne d'en-tête."
+                )
             else:
                 warning = None
 
@@ -309,6 +319,15 @@ class ExcelCompiler:
                 if self.options.drop_subtotal_rows and classify_row(row, sub_kw, tot_kw) != ROW_KIND_DETAIL:
                     continue
                 data_row_count += 1
+
+            # Signaler la présence d'images / zones de texte (calque DrawingML) :
+            # elles sont invisibles pour la compilation (seules les cellules
+            # sont lues). Informatif — explique notamment pourquoi un texte
+            # posé en zone de texte n'apparaît pas dans la sortie.
+            if ext in ['.xlsx', '.xlsm'] and self._has_ignored_shapes(file_path):
+                notice = ("Ce fichier contient des images ou zones de texte : "
+                          "elles sont ignorées (seules les cellules sont lues).")
+                warning = f"{warning} · {notice}" if warning else notice
 
             return FilePreview(
                 file_path=file_path,
@@ -572,6 +591,18 @@ class ExcelCompiler:
                 )
                 result.add_file_result(file_result)
 
+                # Signaler une détection écartée sous le seuil (transparence :
+                # le fichier a été traité avec les paramètres manuels, pas avec
+                # la détection — l'utilisateur doit le savoir).
+                rejected = detection_info.get('rejected_confidence', 0)
+                if rejected:
+                    result.warnings.append(
+                        f"{Path(file_path).name}: détection écartée (confiance "
+                        f"{rejected:.0%} < seuil "
+                        f"{self.options.detection_confidence_threshold:.0%}), "
+                        f"paramètres manuels appliqués"
+                    )
+
                 # Signaler les lignes de total (transparence, jamais silencieux).
                 n_sub = detection_info.get('subtotal_rows', 0)
                 if n_sub:
@@ -674,6 +705,14 @@ class ExcelCompiler:
             'data_end_row': 0,
             'detection_confidence': 0.0,
             'detection_method': 'manual',
+            # Transparence : si une détection existait mais a été écartée
+            # (confiance sous le seuil), on le trace pour que l'aperçu et la
+            # compilation puissent le SIGNALER au lieu de basculer en manuel
+            # en silence — l'utilisateur croirait la détection inutilisable.
+            'rejected_confidence': (
+                detection.confidence
+                if detection and detection.confidence > 0 else 0.0
+            ),
         }
 
     def _read_excel_df(self, file_path: str) -> pd.DataFrame:
@@ -689,6 +728,23 @@ class ExcelCompiler:
         else:
             df = pd.read_excel(file_path, header=None)
         return self._enforce_row_cap(df, file_path)
+
+    @staticmethod
+    def _has_ignored_shapes(file_path: str) -> bool:
+        """Vrai si le classeur contient des dessins (images, zones de texte).
+
+        Ces éléments vivent sur le calque DrawingML (xl/drawings/), jamais lus
+        par la compilation (seules les cellules le sont). Utilisé pour informer
+        l'utilisateur dans l'aperçu. Ne lève jamais : en cas de doute, False.
+        """
+        try:
+            with zipfile.ZipFile(file_path) as z:
+                return any(
+                    name.startswith('xl/drawings/') and name.endswith('.xml')
+                    for name in z.namelist()
+                )
+        except Exception:
+            return False
 
     def _load_single_file(self, file_path: str,
                          detection: Optional[DetectionResult],

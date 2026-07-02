@@ -218,6 +218,11 @@ class FileCompilationResult:
     # (exclues si drop_subtotal_rows, sinon conservées et éventuellement marquées).
     subtotal_rows: int = 0
 
+    # Confiance d'une détection ÉCARTÉE (sous le seuil) quand on est retombé
+    # sur les paramètres manuels. 0.0 = aucune détection écartée. Sert à
+    # signaler ce rejet à l'utilisateur au lieu d'un basculement silencieux.
+    rejected_confidence: float = 0.0
+
     # Métriques
     processing_time: float = 0.0
     memory_used: int = 0
