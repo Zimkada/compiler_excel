@@ -639,6 +639,25 @@ class MainWindow(QMainWindow):
         # Récupérer les rattachements de colonnes éventuellement choisis.
         self._column_aliases = dict(compiler.options.column_aliases)
 
+    def _open_path(self, path: str):
+        """Ouvre un fichier ou dossier avec l'application par défaut de l'OS.
+
+        Utilisé par les boutons « Ouvrir le fichier / le dossier » après une
+        compilation réussie (G3). Échoue proprement (message) si l'ouverture
+        n'est pas possible, sans crasher l'application.
+        """
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtCore import QUrl
+        try:
+            if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+                raise RuntimeError("ouverture refusée par le système")
+        except Exception as e:
+            logger.warning(f"Impossible d'ouvrir {path}: {e}")
+            QMessageBox.warning(
+                self, "Ouverture impossible",
+                f"Impossible d'ouvrir :\n{path}"
+            )
+
     @staticmethod
     def _ensure_output_extension(filename: str, output_format) -> str:
         """Garantit que le nom de sortie porte l'extension du format choisi.
@@ -679,6 +698,16 @@ class MainWindow(QMainWindow):
                 self,
                 "Nom de fichier manquant",
                 "Veuillez spécifier un nom pour le fichier de sortie."
+            )
+            return
+
+        # G4 — refuser une colonne de tri invalide (ex. « 1A ») plutôt que de
+        # trier silencieusement sur la colonne A.
+        if not self.options_widget.sort_column_is_valid():
+            QMessageBox.warning(
+                self, "Colonne de tri invalide",
+                "La colonne de tri est invalide.\n\n"
+                "Indiquez une lettre (A, B, …) ou un numéro (1, 2, …)."
             )
             return
 
@@ -780,17 +809,33 @@ class MainWindow(QMainWindow):
             # Réactiver le bouton
             self.button_compile.setEnabled(True)
 
-            # Message de succès
-            output_filename = Path(result.output_file).name if result.output_file else "compilation.xlsx"
-            QMessageBox.information(
-                self,
-                "Compilation réussie",
-                f"La compilation est terminée!\n\n"
-                f"• Fichiers: {result.successful_files}/{result.total_files}\n"
-                f"• Lignes: {result.total_rows}\n"
-                f"• Temps: {result.total_processing_time:.2f}s\n\n"
-                f"Fichier créé: {output_filename}"
+            # Message de succès + accès direct au résultat (G3).
+            output_file = result.output_file or ""
+            output_filename = Path(output_file).name if output_file else "compilation.xlsx"
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Information)
+            box.setWindowTitle("Compilation réussie")
+            box.setText(
+                f"La compilation est terminée !\n\n"
+                f"• Fichiers : {result.successful_files}/{result.total_files}\n"
+                f"• Lignes : {result.total_rows}\n"
+                f"• Temps : {result.total_processing_time:.2f}s\n\n"
+                f"Fichier créé : {output_filename}"
             )
+            open_file_btn = None
+            open_dir_btn = None
+            if output_file and Path(output_file).exists():
+                open_file_btn = box.addButton("Ouvrir le fichier",
+                                              QMessageBox.ButtonRole.AcceptRole)
+                open_dir_btn = box.addButton("Ouvrir le dossier",
+                                             QMessageBox.ButtonRole.ActionRole)
+            box.addButton("Fermer", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is open_file_btn and open_file_btn is not None:
+                self._open_path(output_file)
+            elif clicked is open_dir_btn and open_dir_btn is not None:
+                self._open_path(str(Path(output_file).parent))
 
             # Nettoyer le worker
             self.compilation_worker = None
@@ -846,6 +891,12 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Appelé à la fermeture de la fenêtre"""
+        # G1 — mémoriser les options pour le prochain lancement.
+        try:
+            self.options_widget.save_settings()
+        except Exception:
+            logger.warning("Impossible de mémoriser les options", exc_info=True)
+
         # Annuler compilation en cours si nécessaire
         if self.compilation_worker and self.compilation_worker.isRunning():
             reply = QMessageBox.question(
