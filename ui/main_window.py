@@ -28,7 +28,7 @@ class MainWindow(QMainWindow):
     """
     Fenêtre principale de ExcelCompiler v3.2
 
-    Architecture simplifiée avec détection automatique par défaut
+    Architecture modulaire ; détection par fichier de référence par défaut.
     """
 
     def __init__(self):
@@ -567,27 +567,29 @@ class MainWindow(QMainWindow):
         <h3>Nouveautés v3.2</h3>
         <ul>
             <li>✨ <b>Détection par fichier de référence</b> - Indiquez l'en-tête du premier fichier, les autres sont alignés automatiquement</li>
-            <li>🎯 <b>Architecture modulaire</b> - Code propre et maintenable</li>
-            <li>⚡ <b>Interface simplifiée</b> - Workflow optimisé en quelques clics</li>
-            <li>📊 <b>Statistiques détaillées</b> - Résultats complets avec métriques</li>
+            <li>🧩 <b>Alignement des colonnes par libellé</b> - Fichiers aux colonnes désordonnées empilés correctement, jamais de corruption silencieuse</li>
+            <li>🔗 <b>Cellules fusionnées propagées</b> et <b>en-têtes multi-lignes</b> aplatis proprement</li>
+            <li>⚡ <b>Écriture Excel accélérée</b> - Compilations de gros volumes nettement plus rapides</li>
+            <li>🛡️ <b>Protections</b> - Séparateur CSV détecté (;), classeurs multi-feuilles signalés, écrasement confirmé</li>
+            <li>💾 <b>Options mémorisées</b> d'une session à l'autre, et <b>vérification de mise à jour</b> au démarrage</li>
         </ul>
 
         <h3>Fonctionnalités</h3>
         <ul>
-            <li>Compilation de fichiers Excel (.xlsx, .xlsm)</li>
-            <li>Support CSV et TSV</li>
-            <li>Détection par fichier de référence ou configuration manuelle</li>
-            <li>Gestion des en-têtes multi-lignes</li>
-            <li>Export en Excel, CSV ou TSV</li>
-            <li>Ajout automatique du nom de fichier source</li>
+            <li>Compilation de fichiers Excel (.xlsx, .xlsm), CSV et TSV</li>
+            <li>Détection par fichier de référence, automatique ou manuelle</li>
+            <li>Séparateur CSV détecté automatiquement (virgule, point-virgule, tabulation)</li>
+            <li>Lignes de total / sous-total détectées (exclues ou marquées)</li>
+            <li>Aperçu de détection avec correction par fichier avant compilation</li>
+            <li>Export en Excel mis en forme, CSV ou TSV ; ajout du nom de fichier source</li>
         </ul>
 
         <h3>Utilisation</h3>
         <ol>
-            <li>Sélectionnez un dossier contenant vos fichiers Excel</li>
-            <li>Configurez les options (détection auto activée par défaut)</li>
-            <li>Cliquez sur COMPILER</li>
-            <li>Consultez les résultats dans l'onglet Résultats</li>
+            <li>Sélectionnez un dossier ou glissez-déposez vos fichiers</li>
+            <li>Choisissez le mode de détection (fichier de référence par défaut)</li>
+            <li>Vérifiez avec « Aperçu », puis cliquez sur COMPILER</li>
+            <li>Consultez les résultats et ouvrez directement le fichier produit</li>
         </ol>
 
         <hr>

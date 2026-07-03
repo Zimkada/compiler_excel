@@ -17,6 +17,11 @@
 - **Aperçu de détection** avant compilation + correction manuelle par fichier.
 - Tri par colonne et suppression des doublons.
 
+### ⚡ Performance
+- **Écriture Excel accélérée** (environ ×2 sur les gros volumes) : écriture par
+  lots, bordures adaptatives au-delà d'un seuil, largeurs de colonnes estimées
+  sur échantillon — l'intégrité des données est préservée.
+
 ### 🛡️ Sécurité et robustesse
 - **Garde-fou de taille de fichier** réellement appliqué : un fichier trop
   volumineux est rejeté proprement sans interrompre les autres.
@@ -24,7 +29,25 @@
   avertissement transparent).
 - **Annulation réactive** de la compilation, y compris pendant le traitement
   d'un gros fichier.
+- **Séparateur CSV détecté** automatiquement (virgule, point-virgule,
+  tabulation) — fini les CSV français lus en une seule colonne.
 - Lecture tolérante aux encodages (UTF-8, Latin-1, CP1252) pour CSV/TSV.
+
+### 🔒 Protection des données à l'export
+- L'**extension du fichier de sortie** est synchronisée avec le format choisi.
+- **Confirmation** avant d'écraser un fichier de sortie existant.
+- Le fichier de sortie est **exclu des sources** s'il se trouve dans le dossier
+  (évite de recompiler la sortie précédente).
+- Les **classeurs multi-feuilles** sont signalés (seule la 1ʳᵉ est compilée).
+
+### 💡 Confort
+- **Options mémorisées** d'une session à l'autre (mode, cases, format, nom de
+  sortie, colonne de tri).
+- Après compilation, boutons **« Ouvrir le fichier / le dossier »**.
+- Colonne de tri **validée** (une saisie invalide est refusée, pas de tri
+  silencieux sur la mauvaise colonne).
+- **Vérification de mise à jour** au démarrage (bannière discrète, silencieuse
+  si hors-ligne).
 
 ### 🎯 Prêt à l'emploi
 - Détection par référence activée par défaut.

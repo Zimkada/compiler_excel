@@ -58,6 +58,10 @@ rattachée manuellement à la bonne colonne du tableau final.
 > Les anciens fichiers `.xls` (Excel 97-2003) ne sont pas pris en charge :
 > ouvrez-les dans Excel et enregistrez-les en `.xlsx` au préalable.
 
+Pour les fichiers texte, le **séparateur est détecté automatiquement**
+(virgule, point-virgule — courant en français —, ou tabulation), ainsi que
+l'encodage (UTF-8, Latin-1, Windows-1252).
+
 ---
 
 ## 5. Options utiles
@@ -72,6 +76,10 @@ rattachée manuellement à la bonne colonne du tableau final.
   défaut** (pour éviter le double comptage) ou conservées et marquées, au choix.
 - **Tri** et **suppression des doublons** sur le tableau final.
 
+Vos réglages (mode, options, format, nom de sortie) sont **mémorisés** et
+restaurés au prochain lancement. Après une compilation réussie, un bouton
+permet d'**ouvrir directement** le fichier produit ou son dossier.
+
 ---
 
 ## 6. Limites et bonnes pratiques
@@ -82,6 +90,15 @@ rattachée manuellement à la bonne colonne du tableau final.
   (un avertissement le signale).
 - Les fichiers doivent partager une **structure de colonnes proche** ; des
   colonnes manquantes deviennent des cellules vides (jamais inventées).
+- Dans un classeur à **plusieurs feuilles**, seule la première est compilée —
+  l'application le signale ; placez les données à compiler sur la 1ʳᵉ feuille.
+- Le fichier de sortie est automatiquement **exclu des sources** s'il se trouve
+  déjà dans le dossier (pas de double comptage), et son **écrasement est
+  confirmé** avant remplacement.
+
+L'application **vérifie au démarrage** si une version plus récente est
+disponible (via GitHub) et l'annonce par une bannière discrète — sans jamais
+gêner votre travail, ni rien envoyer d'autre qu'une simple requête de version.
 
 ---
 
