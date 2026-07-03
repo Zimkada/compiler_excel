@@ -40,9 +40,11 @@ class MainWindow(QMainWindow):
         # Rattachements manuels de colonnes (étape 6), choisis dans l'aperçu.
         # {libellé_source: libellé_cible_du_schéma}
         self._column_aliases = {}
+        self._update_worker = None
         self.setup_ui()
         self.connect_signals()
         T.get_manager().theme_changed.connect(self.apply_theme)
+        self._start_update_check()
 
     @staticmethod
     def _apply_soft_shadow(widget, blur=24, dy=4, alpha=28):
@@ -68,6 +70,9 @@ class MainWindow(QMainWindow):
 
         # === HEADER HÉRO ===
         root.addWidget(self.create_header())
+
+        # === BANNIÈRE DE MISE À JOUR (cachée par défaut) ===
+        root.addWidget(self.create_update_banner())
 
         # === CORPS : sidebar + pages ===
         body = QWidget()
@@ -164,6 +169,77 @@ class MainWindow(QMainWindow):
         layout.addWidget(badge)
 
         return header
+
+    def create_update_banner(self) -> QWidget:
+        """Bannière discrète signalant une mise à jour disponible.
+
+        Cachée par défaut ; affichée seulement si le worker de vérification
+        trouve une version plus récente. Non-bloquante : l'utilisateur peut
+        l'ignorer et continuer à travailler.
+        """
+        banner = QFrame()
+        self._update_banner = banner
+        banner.setVisible(False)
+        layout = QHBoxLayout(banner)
+        layout.setContentsMargins(T.SPACE_LG, T.SPACE_SM, T.SPACE_LG, T.SPACE_SM)
+        layout.setSpacing(T.SPACE_MD)
+
+        self._update_label = QLabel("")
+        layout.addWidget(self._update_label)
+        layout.addStretch()
+
+        self._update_download_btn = QPushButton("Télécharger")
+        self._update_download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout.addWidget(self._update_download_btn)
+
+        dismiss = QPushButton("✕")
+        dismiss.setFixedSize(28, 28)
+        dismiss.setCursor(Qt.CursorShape.PointingHandCursor)
+        dismiss.setToolTip("Masquer")
+        dismiss.clicked.connect(lambda: banner.setVisible(False))
+        layout.addWidget(dismiss)
+
+        banner.setStyleSheet(
+            f"QFrame {{ background-color: {T.ACCENT_SOFT}; "
+            f"border-bottom: 1px solid {T.BORDER}; }}"
+        )
+        self._update_label.setStyleSheet(
+            f"color: {T.ACCENT}; font-weight: 600;")
+        return banner
+
+    def _start_update_check(self):
+        """Lance en arrière-plan la vérification de mise à jour (non-bloquant,
+        silencieux en cas d'échec ou hors-ligne)."""
+        try:
+            from ui.workers import UpdateCheckWorker
+            from config.constants import APP_VERSION
+            self._update_worker = UpdateCheckWorker(APP_VERSION)
+            self._update_worker.update_found.connect(self._on_update_found)
+            self._update_worker.start()
+        except Exception:
+            logger.info("Vérification de mise à jour non démarrée", exc_info=True)
+
+    def _on_update_found(self, info):
+        """Affiche la bannière quand une mise à jour est disponible."""
+        self._update_label.setText(
+            f"🔔 Une nouvelle version ({info.latest_version}) est disponible."
+        )
+        try:
+            self._update_download_btn.clicked.disconnect()
+        except TypeError:
+            pass
+        url = info.download_url
+        self._update_download_btn.clicked.connect(lambda: self._open_url(url))
+        self._update_banner.setVisible(True)
+
+    def _open_url(self, url: str):
+        """Ouvre une URL web dans le navigateur par défaut (page de release)."""
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtCore import QUrl
+        try:
+            QDesktopServices.openUrl(QUrl(url))
+        except Exception as e:
+            logger.warning(f"Impossible d'ouvrir l'URL {url}: {e}")
 
     def _style_theme_toggle(self):
         """Met à jour l'icône et le style du bouton de bascule de thème.
@@ -896,6 +972,15 @@ class MainWindow(QMainWindow):
             self.options_widget.save_settings()
         except Exception:
             logger.warning("Impossible de mémoriser les options", exc_info=True)
+
+        # Arrêter proprement la vérification de mise à jour si elle tourne encore
+        # (appel réseau borné par timeout ; on n'attend que brièvement).
+        if self._update_worker and self._update_worker.isRunning():
+            try:
+                self._update_worker.blockSignals(True)
+                self._update_worker.wait(1500)
+            except Exception:
+                pass
 
         # Annuler compilation en cours si nécessaire
         if self.compilation_worker and self.compilation_worker.isRunning():

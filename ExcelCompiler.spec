@@ -32,6 +32,8 @@ a = Analysis(
         'openpyxl.styles', 'openpyxl.utils', 'openpyxl.worksheet',
         # PyQt6.
         'PyQt6.QtCore', 'PyQt6.QtGui', 'PyQt6.QtWidgets', 'PyQt6.sip',
+        # Vérification de mise à jour (appel réseau via la stdlib).
+        'urllib.request', 'urllib.error',
     ],
     hookspath=[],
     hooksconfig={},
