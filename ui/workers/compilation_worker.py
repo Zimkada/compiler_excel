@@ -87,9 +87,13 @@ class CompilationWorker(QThread):
                 logger.info(f"Compilation réussie: {result.successful_files}/{result.total_files} fichiers")
                 self.compilation_finished.emit(result)
             else:
-                error_msg = "Compilation échouée"
-                if result.warnings:
-                    error_msg += f": {', '.join(result.warnings[:3])}"
+                # N'afficher que ce qui explique VRAIMENT l'échec. Les
+                # avertissements informatifs (colonnes parasites ignorées,
+                # colonne inconnue ajoutée, lignes de total exclues…) accompagnent
+                # aussi les compilations réussies : les présenter comme la cause
+                # de l'échec envoyait l'utilisateur vérifier ses colonnes alors
+                # que le problème était ailleurs (aucune donnée exploitable).
+                error_msg = self._build_failure_message(result)
                 logger.error(error_msg)
                 self.error_occurred.emit(error_msg)
 
@@ -97,6 +101,47 @@ class CompilationWorker(QThread):
             error_msg = f"Erreur compilation: {str(e)}"
             logger.error(error_msg, exc_info=True)
             self.error_occurred.emit(error_msg)
+
+    @staticmethod
+    def _build_failure_message(result) -> str:
+        """Compose un message d'échec qui nomme la CAUSE, pas les à-côtés.
+
+        Les avertissements sont de deux natures très différentes :
+        - informatifs (colonnes parasites ignorées, colonne inconnue ajoutée,
+          lignes de total ou de signature exclues) — ils accompagnent aussi
+          les compilations parfaitement réussies ;
+        - bloquants (« Aucune donnée compilée », « Erreur fatale : … ») — eux
+          seuls expliquent un échec.
+
+        On ne remonte que les seconds. À défaut, on dit simplement qu'aucune
+        donnée exploitable n'a été trouvée, ce qui oriente l'utilisateur vers
+        la bonne question (ligne d'en-tête, fichiers sélectionnés) plutôt que
+        vers ses colonnes.
+        """
+        blocking_markers = ("Aucune donnée", "Erreur fatale", "annulée")
+        blocking = [
+            w for w in getattr(result, 'warnings', [])
+            if any(m.lower() in w.lower() for m in blocking_markers)
+        ]
+
+        msg = "Compilation échouée"
+        if blocking:
+            return f"{msg} : {' · '.join(blocking[:3])}"
+
+        failed = [
+            f for f in getattr(result, 'file_results', [])
+            if not getattr(f, 'success', True) and getattr(f, 'error_message', None)
+        ]
+        if failed:
+            details = ', '.join(
+                f"{Path(f.file_path).name} ({f.error_message})" for f in failed[:3]
+            )
+            return f"{msg} : {details}"
+
+        return (
+            f"{msg} : aucune donnée exploitable n'a été trouvée. "
+            "Vérifiez la ligne d'en-tête indiquée et les fichiers sélectionnés."
+        )
 
     def cancel(self):
         """Annule la compilation en cours"""

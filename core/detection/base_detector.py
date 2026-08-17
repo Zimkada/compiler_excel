@@ -67,6 +67,7 @@ def prune_phantom_columns(
     min_abs: int = 3,
     ratio: float = 0.05,
     dense_ratio: float = 0.5,
+    rel_ratio: float = 0.5,
 ) -> Tuple[pd.DataFrame, int]:
     """Élague les colonnes parasites en fin de tableau.
 
@@ -85,6 +86,16 @@ def prune_phantom_columns(
     toute colonne dont la densité atteint ``dense_ratio`` (50 % par défaut) :
     une vraie colonne fantôme est quasi vide, jamais à moitié remplie.
 
+    Garde-fou RELATIF : sur un tableau court, ces deux seuils absolus restent
+    trop stricts. Un formulaire de 5 lignes dont l'en-tête en occupe 4 ne laisse
+    que 2 cellules remplies à sa dernière colonne (le sous-titre + la donnée) :
+    sous le plancher de 3 ET sous les 50 % de densité, elle était coupée alors
+    qu'elle porte de vraies données. Or le signal qui distingue une fantôme
+    n'est pas absolu, il est RELATIF aux autres colonnes : une fantôme est
+    quasi vide *comparée aux colonnes réelles*. Toute colonne atteignant
+    ``rel_ratio`` du remplissage de la colonne la mieux remplie est donc
+    conservée.
+
     Returns:
         (df_élagué, nb_colonnes_coupées). Si rien n'est à couper, retourne le
         df d'origine et 0.
@@ -96,12 +107,16 @@ def prune_phantom_columns(
     threshold = max(min_abs, int(n_rows * ratio))
     dense_threshold = n_rows * dense_ratio
     filled_per_col = df.notna().sum(axis=0)
+    counts = filled_per_col.tolist()
+    # Seuil relatif à la colonne la mieux remplie (voir docstring).
+    rel_threshold = max(counts) * rel_ratio if counts else 0
 
-    # Indices positionnels des colonnes substantielles : soit elles dépassent
-    # le seuil absolu, soit elles sont suffisamment denses (petits tableaux).
+    # Indices positionnels des colonnes substantielles : seuil absolu, densité
+    # (petits tableaux), ou remplissage comparable aux autres colonnes.
     substantial = [
-        pos for pos, count in enumerate(filled_per_col.tolist())
+        pos for pos, count in enumerate(counts)
         if count >= threshold or count >= dense_threshold
+        or (count > 0 and count >= rel_threshold)
     ]
     if not substantial:
         return df, 0  # rien de fiable : on ne touche pas

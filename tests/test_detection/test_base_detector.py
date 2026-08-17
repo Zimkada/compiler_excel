@@ -298,3 +298,72 @@ class TestPruneLeadingEmptyColumns:
         pruned, removed = prune_leading_empty_columns(df)
         assert removed == 0
         assert pruned.shape[1] == 2
+
+
+class TestPrunePhantomRelativeGuard:
+    """Garde-fou RELATIF : sur un tableau court, une vraie colonne peu remplie
+    ne doit pas être prise pour une fantôme.
+
+    Cas réel : formulaire de 5 lignes dont l'en-tête occupe les lignes 3-4. La
+    dernière colonne (« Nombre ayant survécu » 2026) n'a que 2 cellules
+    remplies — le sous-titre et la donnée — soit sous le plancher absolu (3) ET
+    sous les 50 % de densité (2.5). Elle était coupée, et l'utilisateur voyait
+    « le tableau utile fait 4 colonnes » alors que son tableau en a 5.
+    """
+
+    def test_short_form_keeps_last_column(self):
+        import pandas as pd
+        from core.detection.base_detector import prune_phantom_columns
+
+        df = pd.DataFrame([
+            ["SUIVI DES PLANTS", None, None, None, None],
+            [None, None, None, None, None],
+            ["Etablissement", "Plants 2025", None, "Plants 2026", None],
+            [None, "Nombre total", "Nombre survécu", "Nombre total", "Nombre survécu"],
+            ["CEG ARBONGA", 189, 189, 72, 68],
+        ])
+        pruned, removed = prune_phantom_columns(df)
+        assert removed == 0
+        assert pruned.shape[1] == 5
+
+    def test_extra_column_kept_when_comparable(self):
+        """Une 6e colonne « observations », aussi remplie que les autres, reste."""
+        import pandas as pd
+        from core.detection.base_detector import prune_phantom_columns
+
+        df = pd.DataFrame([
+            ["Etablissement", "Plants 2025", None, "Plants 2026", None, None],
+            [None, "Nombre total", "Survécu", "Nombre total", "Survécu", "observations"],
+            ["CEG GOUMORI", "125", "121", "50", 170, "Des cages"],
+        ])
+        pruned, removed = prune_phantom_columns(df)
+        assert removed == 0
+        assert pruned.shape[1] == 6
+
+    def test_true_phantom_still_pruned_on_short_table(self):
+        """Non-régression : une colonne réellement vide reste coupée, même
+        sur un tableau court (0 cellule remplie ne passe aucun critère)."""
+        import pandas as pd
+        from core.detection.base_detector import prune_phantom_columns
+
+        df = pd.DataFrame([
+            ["Etablissement", "Total", None, None],
+            ["CEG X", 12, None, None],
+            ["CEG Y", 8, None, None],
+        ])
+        pruned, removed = prune_phantom_columns(df)
+        assert removed == 2
+        assert pruned.shape[1] == 2
+
+    def test_sparse_column_still_pruned_on_large_table(self):
+        """Non-régression : sur un grand tableau, une colonne finale très
+        creuse reste coupée — le seuil relatif ne la sauve pas."""
+        import pandas as pd
+        from core.detection.base_detector import prune_phantom_columns
+
+        data = [[f"v{i}", i, None] for i in range(100)]
+        data[5][2] = "egaree"
+        df = pd.DataFrame(data)
+        pruned, removed = prune_phantom_columns(df)
+        assert removed == 1
+        assert pruned.shape[1] == 2
