@@ -212,3 +212,31 @@ class TestVerticalMergeFallback:
         ])
         r = BorderDetector().detect(p)
         assert r.header_rows == 1
+
+    def test_deep_vertical_merge_is_rejected_not_clamped(self, tmp_path):
+        """Régression (revue) : une fusion verticale PROFONDE (A3:A12, libellé
+        recopié sur des lignes de données) était ramenée à header_start+4 et
+        avalait 4 lignes de données dans l'en-tête. Elle doit être rejetée, et
+        le défaut sûr (1 ligne) s'appliquer."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        rows = [
+            ["Departement", "Commune", "Ecole"],
+            ["ALIBORI", "Kandi", "EPP A"],
+            ["ALIBORI", "Kandi", "EPP B"],
+            ["ALIBORI", "Kandi", "EPP C"],
+            ["ALIBORI", "Kandi", "EPP D"],
+            ["ALIBORI", "Kandi", "EPP E"],
+            ["ALIBORI", "Kandi", "EPP F"],
+        ]
+        for ri, row in enumerate(rows, 1):
+            for ci, val in enumerate(row, 1):
+                ws.cell(ri, ci, val).border = _FULL_BORDER
+        # Libellé de regroupement recopié sur toute la zone de données.
+        ws.merge_cells("A1:A7")
+        p = str(tmp_path / "deep.xlsx")
+        wb.save(p)
+
+        r = BorderDetector().detect(p)
+        assert r.header_rows == 1
+        assert r.data_start_row == 2

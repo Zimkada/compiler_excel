@@ -311,15 +311,22 @@ class ExcelCompiler:
             end = data_end if (data_end and data_end > 0) else n
             end = min(end, n)
             data_row_count = 0
+            # Même règle que la compilation (invariant aperçu = sortie) :
+            # ordre total -> signature, et signature seulement après rupture.
+            after_break = False
             for idx in range(data_start - 1, end):
                 if idx < 0 or idx >= n:
                     continue
                 row = df.iloc[idx].tolist()
                 if self.options.remove_empty_rows and self._is_row_empty(row):
+                    if data_row_count:
+                        after_break = True
                     continue
-                if self.options.drop_signature_rows and is_signature_row(row):
+                is_total = classify_row(row, sub_kw, tot_kw) != ROW_KIND_DETAIL
+                if (self.options.drop_signature_rows and not is_total
+                        and after_break and is_signature_row(row)):
                     continue
-                if self.options.drop_subtotal_rows and classify_row(row, sub_kw, tot_kw) != ROW_KIND_DETAIL:
+                if self.options.drop_subtotal_rows and is_total:
                     continue
                 data_row_count += 1
 
@@ -940,6 +947,9 @@ class ExcelCompiler:
         data: List[List] = []
         n_subtotal = 0
         self._last_signature_rows = 0
+        # Vrai dès qu'une ligne vide a suivi au moins une ligne de données :
+        # le bloc de signature vit toujours après cette rupture.
+        after_break = False
         for loop_i, row_idx in enumerate(range(start_idx, end_idx)):
             # Annulation réactive sur les gros fichiers déjà chargés : on
             # vérifie périodiquement (tous les 2000 lignes) sans pénaliser le
@@ -953,15 +963,28 @@ class ExcelCompiler:
             row = df.iloc[row_idx].tolist()
 
             if self.options.remove_empty_rows and self._is_row_empty(row):
+                # Une ligne vide sépare le tableau de son pied de page : tout
+                # ce qui suit est hors tableau (cf. `after_break`).
+                if data:
+                    after_break = True
                 continue
 
-            # Bloc de signature en pied de tableau : ce n'est pas une donnée.
-            if drop_sig and is_signature_row(row):
+            # Les lignes d'agrégat sont classées AVANT la détection de
+            # signature : un « TOTAL GENERAL » sans identité relève de
+            # drop_subtotal_rows et de l'option de l'utilisateur, pas du pied
+            # de page. L'inverse le faisait disparaître même quand il avait
+            # demandé de conserver les totaux.
+            kind = classify_row(row, sub_kw, tot_kw)
+            is_total = kind != ROW_KIND_DETAIL
+
+            # Bloc de signature : ce n'est pas une donnée. Exigé APRÈS une
+            # rupture dans le tableau (ligne vide déjà rencontrée), sinon un
+            # libellé comme « Le Censeur » au milieu d'une liste de personnel
+            # serait pris pour une signature et la ligne supprimée.
+            if drop_sig and not is_total and after_break and is_signature_row(row):
                 self._last_signature_rows += 1
                 continue
 
-            kind = classify_row(row, sub_kw, tot_kw)
-            is_total = kind != ROW_KIND_DETAIL
             if is_total:
                 n_subtotal += 1
                 if drop:

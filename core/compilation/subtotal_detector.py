@@ -114,11 +114,16 @@ def is_total_row(row: Sequence,
 
 # Marqueurs d'un bloc de signature en pied de tableau. Observés tels quels sur
 # les formulaires administratifs réels (lieu/date, qualité du signataire).
+# NB : l'apostrophe n'est pas une frontière de mot pour \b, et _normalize (mise
+# en commun avec la détection des totaux) ne la remplace pas. « CHEF
+# D'ETABLISSEMENT » est donc listé sous ses deux graphies plutôt que de toucher
+# à une normalisation partagée.
 SIGNATURE_KEYWORDS: List[str] = [
     "FAIT A",
     "LE DIRECTEUR",
     "LA DIRECTRICE",
     "CHEF D ETABLISSEMENT",
+    "CHEF D'ETABLISSEMENT",
     "CHEF ETABLISSEMENT",
     "LE CENSEUR",
     "LE PROVISEUR",
@@ -142,12 +147,22 @@ def is_signature_row(row: Sequence,
          une ligne de données nomme toujours son établissement ;
       2. la ligne ne contient AUCUNE valeur numérique — une ligne de données
          porte des chiffres, un bloc de signature n'en a pas ;
-      3. au moins une cellule correspond à un marqueur de signature, OU la
-         ligne ne porte qu'une seule cellule de texte (nom du signataire seul,
-         qui suit une ligne « Le Directeur » sans mot-clé propre).
+      3. au moins une cellule correspond à un marqueur de signature.
 
-    La condition 2 est le vrai garde-fou : une ligne de continuation légitime
-    (identité vide mais chiffres présents) n'est jamais écartée.
+    La condition 3 exige VRAIMENT un marqueur. Une version antérieure acceptait
+    aussi « une seule cellule de texte » pour rattraper le nom du signataire
+    seul sous un « Le Directeur ». Cette tolérance supprimait des DONNÉES : une
+    ligne ``[None, 'NEANT', None]`` (établissement n'ayant pas rempli sa colonne
+    d'identité) ou ``[None, None, 'Aucun élève inscrit']`` était comptée comme
+    signature et effacée silencieusement. Un nom de signataire isolé est
+    désormais conservé — une ligne en trop est anodine, une donnée perdue ne
+    l'est pas.
+
+    N'est PAS du ressort de cette fonction : les lignes de total/sous-total,
+    qui ont leur propre classification (``classify_row``) et leur propre option
+    utilisateur. Elles sont donc explicitement exclues ici, sans quoi un
+    « TOTAL GENERAL » sans identité serait compté comme signature et supprimé
+    même lorsque l'utilisateur a demandé de conserver les totaux.
     """
     values = list(row)
     if not values:
@@ -158,6 +173,11 @@ def is_signature_row(row: Sequence,
         ident = values[identity_col]
         if ident is not None and str(ident).strip() and str(ident).strip().lower() != 'nan':
             return False
+
+    # Une ligne d'agrégat relève de classify_row, pas de la détection de
+    # signature : la laisser passer ici court-circuiterait drop_subtotal_rows.
+    if classify_row(row) != ROW_KIND_DETAIL:
+        return False
 
     texts: List[str] = []
     for val in values:
@@ -181,12 +201,9 @@ def is_signature_row(row: Sequence,
     if not texts:
         return False  # ligne vide : traitée par le filtre de lignes vides
 
-    if _row_contains(texts, keywords):
-        return True
-
-    # Nom du signataire seul sous un « Le Directeur » : une unique cellule de
-    # texte, sans le moindre chiffre, dans une ligne sans identité.
-    return len(texts) == 1
+    # 3. Un marqueur de signature est EXIGÉ (cf. docstring) : sans lui, on
+    #    conserve la ligne, quitte à garder une mention de trop.
+    return _row_contains(texts, keywords)
 
 
 def _looks_numeric(text: str) -> bool:

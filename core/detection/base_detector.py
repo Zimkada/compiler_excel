@@ -156,11 +156,16 @@ def prune_leading_empty_columns(df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
         (pos for pos, count in enumerate(filled_per_col) if count > 0),
         None,
     )
-    if not first_filled:
-        # Aucune colonne remplie (tableau vide), ou tableau déjà bien cadré.
+    # Test explicite : `not first_filled` confondrait « aucune colonne remplie »
+    # (None) avec « tableau déjà cadré » (0). Les deux renvoient bien le df
+    # inchangé aujourd'hui, mais l'amalgame est un piège pour la maintenance.
+    if first_filled is None or first_filled == 0:
         return df, 0
 
-    pruned = df.iloc[:, first_filled:]
+    # .copy() : la ré-indexation qui suit écrit sur le résultat d'un .iloc,
+    # c'est-à-dire potentiellement une vue. Sous copy-on-write (défaut en
+    # pandas 3.x) cette écriture serait sans effet ou avertie.
+    pruned = df.iloc[:, first_filled:].copy()
     # Réindexer les colonnes : le reste du moteur adresse les colonnes par
     # position (iloc / tolist), un index démarrant à 2 fausserait les repères.
     pruned.columns = range(pruned.shape[1])

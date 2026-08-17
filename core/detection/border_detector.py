@@ -213,8 +213,14 @@ class BorderDetector(BaseDetector):
         est alors aveugle et retombe à 1 seule ligne d'en-tête, coupant le
         tableau au mauvais endroit.
 
+        Une fusion PROFONDE est rejetée, jamais tronquée : ``A3:A12`` décrit un
+        libellé recopié sur des lignes de données (regroupement visuel), pas un
+        en-tête de dix niveaux. La ramener à ``max_end`` engloutirait des lignes
+        de données dans l'en-tête. Au-delà de ``max_end``, on préfère donc ne
+        rien conclure et laisser le défaut sûr (1 ligne) s'appliquer.
+
         Renvoie la dernière ligne d'en-tête, ou None si aucune fusion verticale
-        ne démarre sur ``header_start``.
+        plausible ne démarre sur ``header_start``.
         """
         if worksheet is None:
             return None
@@ -222,9 +228,10 @@ class BorderDetector(BaseDetector):
         for rng in getattr(worksheet, 'merged_cells', {}).ranges:
             # Fusion verticale démarrant sur la 1re ligne d'en-tête.
             if rng.min_row == header_start and rng.max_row > rng.min_row:
-                candidate = min(rng.max_row, max_end)
-                if header_end is None or candidate > header_end:
-                    header_end = candidate
+                if rng.max_row > max_end:
+                    continue  # fusion trop profonde : non concluante
+                if header_end is None or rng.max_row > header_end:
+                    header_end = rng.max_row
         return header_end
 
     def _detect_table_zone(self, border_analysis: Dict[int, Dict],

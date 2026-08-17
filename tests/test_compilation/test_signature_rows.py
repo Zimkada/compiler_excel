@@ -42,10 +42,16 @@ class TestSignatureUnit:
     def test_chef_etablissement(self):
         assert is_signature_row([None, None, None, "le chef d'établissement"])
 
-    def test_signataire_name_alone(self):
-        """Le nom seul, sous un « Le Directeur » : une unique cellule de texte,
-        sans chiffre, dans une ligne sans identité."""
-        assert is_signature_row([None, None, None, "Aoudou NAMATA", None])
+    def test_signataire_name_alone_is_kept(self):
+        """Le nom du signataire SEUL est conservé : aucun marqueur ne permet de
+        le distinguer d'une donnée.
+
+        Une version antérieure écartait toute ligne sans identité ne portant
+        qu'une seule cellule de texte. Cette tolérance supprimait de vraies
+        données (« NEANT » d'un établissement, « Aucun élève inscrit »…). Garder
+        une mention de trop est anodin ; perdre une donnée ne l'est pas.
+        """
+        assert not is_signature_row([None, None, None, "Aoudou NAMATA", None])
 
     def test_same_mention_repeated_across_columns(self):
         assert is_signature_row(
@@ -55,6 +61,23 @@ class TestSignatureUnit:
 
 class TestNoFalsePositive:
     """Le garde-fou : une vraie ligne de données n'est jamais écartée."""
+
+    def test_neant_without_identity_is_data(self):
+        """Régression (revue) : un établissement ayant saisi « NEANT » sans
+        remplir sa colonne d'identité voyait sa ligne supprimée."""
+        assert not is_signature_row([None, "NEANT", None, None])
+
+    def test_free_text_without_identity_is_data(self):
+        assert not is_signature_row([None, None, "Aucun élève inscrit", None])
+
+    def test_total_row_is_not_a_signature(self):
+        """Régression (revue) : un « TOTAL GENERAL » sans identité était compté
+        comme signature. Il relève de classify_row et de drop_subtotal_rows —
+        sinon l'option « conserver les totaux » était contournée."""
+        assert not is_signature_row([None, "TOTAL GENERAL", None])
+
+    def test_subtotal_row_is_not_a_signature(self):
+        assert not is_signature_row([None, "ENSEMBLE COMMUNE", None])
 
     def test_data_row_with_identity(self):
         assert not is_signature_row(["CEG ARBONGA", 189.0, 189.0, 72.0, 68.0])
@@ -119,12 +142,56 @@ class TestSignatureRowsInCompilation:
         wb.close()
         return rows, result
 
+    def test_signature_keyword_inside_the_table_is_kept(self, tmp_path):
+        """Régression (revue) : le mot-clé seul ne suffit pas — il faut être
+        APRÈS une rupture. Dans une liste de personnel, « Le Censeur » est une
+        donnée, pas une signature, et la ligne doit survivre."""
+        src = _make_xlsx(tmp_path / "personnel.xlsx", [
+            ["Etablissement", "Fonction", "Adjoint"],
+            ["CEG A", "Le Directeur", "Paul"],
+            [None, "Le Censeur", "Marie"],
+            ["CEG B", "Le Proviseur", "Jean"],
+            [None, None, None],
+            [None, None, "Fait à Kandi, le 13/07/2026"],
+        ])
+        out = tmp_path / "out.xlsx"
+        opts = CompilationOptions(
+            use_reference_mode=False, auto_detect_structure=False,
+            manual_header_start_row=1, manual_header_rows=1,
+            filename_option=FilenameOption.NONE, drop_signature_rows=True,
+        )
+        result = ExcelCompiler(opts).compile_files([src], str(out))
+        assert result.successful_files == 1
+
+        wb = openpyxl.load_workbook(out)
+        ws = wb.active
+        rows = [
+            [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
+            for r in range(1, ws.max_row + 1)
+        ]
+        wb.close()
+
+        flat = [str(v) for r in rows for v in r if v is not None]
+        # Les lignes DANS le tableau sont conservées…
+        assert "Le Censeur" in flat
+        assert "Marie" in flat
+        assert "Le Proviseur" in flat
+        # …et le pied de page, lui, est bien écarté.
+        assert not any("Fait à" in v for v in flat)
+
     def test_signature_block_excluded(self, tmp_path):
+        """Les lignes PORTANT un marqueur sont écartées.
+
+        Le nom du signataire seul (« Zenabou BANI SEIDOU »), lui, est conservé :
+        rien ne le distingue d'une donnée. Compromis assumé — garder une mention
+        de trop est anodin, supprimer une donnée ne l'est pas (cf.
+        test_signataire_name_alone_is_kept).
+        """
         rows, _ = self._compile(tmp_path)
         assert rows[0] == ["Etablissement", "Total", "Survivants"]
-        assert len(rows) == 3  # en-tête + 2 établissements
         flat = [str(v) for r in rows for v in r if v is not None]
         assert not any("Directeur" in v or "Fait à" in v for v in flat)
+        assert "CEG ARBONGA" in flat and "CEG BAGOU" in flat
 
     def test_exclusion_is_reported(self, tmp_path):
         """Jamais silencieux : le nombre de lignes écartées est signalé."""
