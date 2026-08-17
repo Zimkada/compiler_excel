@@ -177,7 +177,7 @@ class FileSelectorWidget(QWidget):
 
         if self.all_files:
             self.list_files.selectAll()
-            self.checkbox_select_all.setChecked(True)
+            self._sync_select_all_checkbox(True)
 
     # ── Glisser-déposer ──────────────────────────────────────────────────
     def dragEnterEvent(self, event):
@@ -217,11 +217,33 @@ class FileSelectorWidget(QWidget):
         )
 
     def toggle_select_all(self, state):
-        """Sélectionne/désélectionne tous les fichiers"""
+        """Sélectionne/désélectionne tous les fichiers.
+
+        Ne réagit qu'à un clic RÉEL de l'utilisateur : quand c'est le code qui
+        décoche la case pour refléter une sélection devenue partielle
+        (``_sync_select_all_checkbox``), les signaux sont bloqués. Sans cela,
+        désélectionner un seul fichier décochait la case, ce qui rappelait cette
+        méthode et effaçait toute la sélection.
+        """
         if state == Qt.CheckState.Checked.value:
             self.list_files.selectAll()
         else:
             self.list_files.clearSelection()
+
+    def _sync_select_all_checkbox(self, all_selected: bool):
+        """Aligne la case « Tout sélectionner » sur l'état réel de la liste.
+
+        La case est à la fois une ACTION (clic utilisateur) et un REFLET d'état.
+        On bloque ses signaux le temps de la mise à jour pour que ce reflet ne
+        soit jamais pris pour un ordre de l'utilisateur.
+        """
+        if self.checkbox_select_all.isChecked() == all_selected:
+            return
+        blocked = self.checkbox_select_all.blockSignals(True)
+        try:
+            self.checkbox_select_all.setChecked(all_selected)
+        finally:
+            self.checkbox_select_all.blockSignals(blocked)
 
     def on_selection_changed(self):
         """Appelé quand la sélection change"""
@@ -243,11 +265,11 @@ class FileSelectorWidget(QWidget):
         else:
             self.label_file_count.setText(f"{selected_count}/{total_count} fichiers sélectionnés")
 
-        # Mettre à jour la checkbox "tout sélectionner"
-        if selected_count == total_count and total_count > 0:
-            self.checkbox_select_all.setChecked(True)
-        else:
-            self.checkbox_select_all.setChecked(False)
+        # Refléter l'état réel sur la case "tout sélectionner" (sans la traiter
+        # comme un clic utilisateur : cf. _sync_select_all_checkbox).
+        self._sync_select_all_checkbox(
+            selected_count == total_count and total_count > 0
+        )
 
     def get_selected_files(self) -> List[str]:
         """

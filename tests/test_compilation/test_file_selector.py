@@ -65,3 +65,66 @@ class TestAddFiles:
         widget.add_files([fb, fa])
         names = [widget.list_files.item(i).text() for i in range(widget.list_files.count())]
         assert names == ["alpha.xlsx", "zebra.xlsx"]
+
+
+class TestSelectAllInteraction:
+    """La case « Tout sélectionner » est à la fois une ACTION (clic) et un
+    REFLET de l'état de la liste. Confondre les deux faisait qu'en
+    désélectionnant UN fichier, la case se décochait et effaçait TOUTE la
+    sélection (l'utilisateur perdait ses 46 autres fichiers).
+    """
+
+    def _load(self, widget, tmp_path, n=5):
+        files = [_xlsx(tmp_path / f"f{i}.xlsx") for i in range(n)]
+        widget.add_files(files)
+        return files
+
+    def _deselect_one(self, widget, row):
+        from PyQt6.QtCore import QItemSelectionModel
+
+        item = widget.list_files.item(row)
+        widget.list_files.selectionModel().select(
+            widget.list_files.indexFromItem(item),
+            QItemSelectionModel.SelectionFlag.Deselect,
+        )
+
+    def test_deselecting_one_file_keeps_the_others(self, widget, tmp_path):
+        self._load(widget, tmp_path, n=5)
+        assert len(widget.get_selected_files()) == 5
+
+        self._deselect_one(widget, 2)
+
+        selected = widget.get_selected_files()
+        assert len(selected) == 4
+        assert not any(f.endswith("f2.xlsx") for f in selected)
+
+    def test_checkbox_unchecks_on_partial_selection(self, widget, tmp_path):
+        self._load(widget, tmp_path, n=3)
+        assert widget.checkbox_select_all.isChecked()
+
+        self._deselect_one(widget, 0)
+        assert not widget.checkbox_select_all.isChecked()
+
+    def test_checkbox_rechecks_when_all_selected_again(self, widget, tmp_path):
+        self._load(widget, tmp_path, n=3)
+        self._deselect_one(widget, 0)
+        assert not widget.checkbox_select_all.isChecked()
+
+        widget.list_files.selectAll()
+        assert widget.checkbox_select_all.isChecked()
+        assert len(widget.get_selected_files()) == 3
+
+    def test_checkbox_still_works_as_an_action(self, widget, tmp_path):
+        """Non-régression : un vrai clic doit toujours tout (dé)sélectionner."""
+        self._load(widget, tmp_path, n=4)
+
+        widget.checkbox_select_all.setChecked(False)  # clic simulé
+        assert widget.get_selected_files() == []
+
+        widget.checkbox_select_all.setChecked(True)
+        assert len(widget.get_selected_files()) == 4
+
+    def test_count_label_reflects_partial_selection(self, widget, tmp_path):
+        self._load(widget, tmp_path, n=5)
+        self._deselect_one(widget, 1)
+        assert widget.label_file_count.text() == "4/5 fichiers sélectionnés"
