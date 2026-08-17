@@ -29,7 +29,7 @@ from core.compilation.column_aligner import normalize_label
 from ui.styles import theme as T
 
 # Choix « ne pas rattacher » dans les combos (garder comme colonne distincte).
-_KEEP = "— Garder comme nouvelle colonne —"
+_KEEP = "- Garder comme nouvelle colonne -"
 
 
 class ColumnMapperDialog(QDialog):

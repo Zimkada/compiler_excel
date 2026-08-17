@@ -58,7 +58,7 @@ class MainWindow(QMainWindow):
 
     def setup_ui(self):
         """Configure l'interface utilisateur (header héro + sidebar + pages)."""
-        self.setWindowTitle("ExcelCompiler — Compilateur Excel Intelligent")
+        self.setWindowTitle("ExcelCompiler - Compilateur Excel Intelligent")
         self.setMinimumSize(1080, 720)
         self.resize(1200, 800)
 
@@ -543,7 +543,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._page_header(
             "À propos",
-            "ExcelCompiler — compilateur Excel intelligent."
+            "ExcelCompiler - compilateur Excel intelligent."
         ))
 
         self.about_text = QTextBrowser()

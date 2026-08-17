@@ -74,7 +74,7 @@ class HeaderPickerDialog(QDialog):
             self._load_error = str(e)
 
     def setup_ui(self):
-        self.setWindowTitle(f"Choisir l'en-tête — {Path(self.file_path).name}")
+        self.setWindowTitle(f"Choisir l'en-tête - {Path(self.file_path).name}")
         self.setMinimumSize(720, 520)
 
         layout = QVBoxLayout(self)
@@ -215,7 +215,7 @@ class HeaderPickerDialog(QDialog):
         end_data = start + header_rows
         self.selection_label.setText(
             f"En-tête : ligne {start}"
-            + (f"–{start + header_rows - 1}" if header_rows > 1 else "")
+            + (f"-{start + header_rows - 1}" if header_rows > 1 else "")
             + f"  ·  données dès la ligne {end_data}"
         )
 
