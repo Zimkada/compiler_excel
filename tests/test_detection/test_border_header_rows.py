@@ -139,3 +139,76 @@ class TestRowNumericCount:
         det = BorderDetector()
         # 2 numériques (1, "42"), 1 texte
         assert det._row_numeric_count(self._df([1, "Alice", "42"]), 0) == 2
+
+
+class TestVerticalMergeFallback:
+    """En-tête sur 2 niveaux quand les DONNÉES ne contiennent aucun nombre.
+
+    Le critère par contenu (« une ligne de données porte des chiffres ») est
+    aveugle quand la seule ligne de données vaut « NEANT », du texte libre, ou
+    quand le formulaire n'est pas rempli. Le détecteur retombait alors à 1 seule
+    ligne d'en-tête : les libellés n'étaient plus aplatis comme ceux du reste du
+    lot (« Plants 2025 » au lieu de « Plants 2025 - Nombre total ») et
+    l'aligneur créait des colonnes en double dans la compilation.
+
+    Les fusions VERTICALES (A3:A4) décrivent la structure indépendamment du
+    contenu : elles servent de repli.
+    """
+
+    def _make(self, path, data_row):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        rows = [
+            ["SUIVI DES PLANTS", None, None, None, None],
+            [None, None, None, None, None],
+            ["Etablissement", "Plants 2025", None, "Plants 2026", None],
+            [None, "Nombre total", "Nombre survécu", "Nombre total", "Nombre survécu"],
+            data_row,
+        ]
+        for ri, row in enumerate(rows, 1):
+            for ci, val in enumerate(row, 1):
+                cell = ws.cell(ri, ci, val)
+                if ri >= 3:
+                    cell.border = _FULL_BORDER
+        # En-tête à deux niveaux : identité fusionnée verticalement,
+        # catégories fusionnées horizontalement au-dessus des sous-colonnes.
+        ws.merge_cells("A3:A4")
+        ws.merge_cells("B3:C3")
+        ws.merge_cells("D3:E3")
+        wb.save(path)
+        return str(path)
+
+    def test_text_data_uses_vertical_merge(self, tmp_path):
+        """Données « NEANT » : aucun nombre, mais A3:A4 dit en-tête sur 2 lignes."""
+        p = self._make(tmp_path / "neant.xlsx",
+                       ["CEG SAM", "NEANT", "NEANT", "NEANT", "NEANT"])
+        r = BorderDetector().detect(p)
+        assert r.header_start_row == 3
+        assert r.header_rows == 2
+        assert r.data_start_row == 5
+
+    def test_empty_data_row_uses_vertical_merge(self, tmp_path):
+        """Formulaire non rempli : même conclusion."""
+        p = self._make(tmp_path / "vide.xlsx", [None, None, None, None, None])
+        r = BorderDetector().detect(p)
+        assert r.header_start_row == 3
+        assert r.header_rows == 2
+
+    def test_numeric_data_still_uses_content(self, tmp_path):
+        """Non-régression : quand les données ont des nombres, le critère par
+        contenu reste maître et donne le même résultat."""
+        p = self._make(tmp_path / "chiffres.xlsx", ["CEG X", 30, 20, 35, 28])
+        r = BorderDetector().detect(p)
+        assert r.header_start_row == 3
+        assert r.header_rows == 2
+        assert r.data_start_row == 5
+
+    def test_no_vertical_merge_keeps_single_header_row(self, tmp_path):
+        """Sans fusion verticale et sans nombres, le défaut sûr (1 ligne)
+        reste appliqué : on n'invente pas un en-tête sur 2 lignes."""
+        p = _make_bordered_xlsx(tmp_path / "plat.xlsx", [
+            ["Nom", "Ville"],
+            ["Alice", "Kandi"],
+        ])
+        r = BorderDetector().detect(p)
+        assert r.header_rows == 1

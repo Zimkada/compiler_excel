@@ -211,3 +211,68 @@ class TestCrossValidationAdjustment:
                 assert r.debug_info.get('pruned_phantom_columns'), (
                     f"Warning inattendu (non lié à l'élagage): {r.warning!r}"
                 )
+
+
+class TestVoterRestrictionOnDisagreement:
+    """En cas de DÉSACCORD sur la ligne d'en-tête, seuls les détecteurs ayant
+    trouvé la ligne retenue votent sur le reste de la structure.
+
+    Bug corrigé : la règle « un détecteur qui s'est trompé de ligne n'a pas voix
+    au chapitre » n'était appliquée que dans la branche « accord ». En cas de
+    désaccord, TOUS les détecteurs votaient sur header_rows. Sur un fichier réel
+    où density disait (start=3, rows=2) et pattern (start=4, rows=1), la médiane
+    de [2, 1] donnait rows=1 : l'en-tête à deux niveaux n'était plus aplati, ses
+    libellés divergeaient du reste du lot et l'aligneur créait des colonnes en
+    double après « Fichier source ».
+    """
+
+    def _result(self, method, start, rows, confidence, data_end=0):
+        from core.detection.base_detector import DetectionResult
+        return DetectionResult(
+            file_path="f.xlsx", header_start_row=start, header_rows=rows,
+            data_start_row=start + rows, data_end_row=data_end,
+            confidence=confidence, detection_method=method,
+        )
+
+    def test_disagreeing_detector_does_not_vote_on_header_rows(self):
+        detector = HybridDetector()
+        results = [
+            self._result("density", start=3, rows=2, confidence=0.85),
+            self._result("pattern", start=4, rows=1, confidence=0.83),
+        ]
+        combined = detector._create_combined_result(
+            results, {"border": 0.40, "density": 0.30, "pattern": 0.30}
+        )
+        # La médiane des starts retient 3 ; seul density l'a proposée.
+        assert combined.header_start_row == 3
+        assert combined.header_rows == 2
+        assert combined.data_start_row == 5
+
+    def test_data_end_still_uses_all_detectors(self):
+        """Non-régression : data_end prend le MAX de TOUS les détecteurs.
+        Le restreindre aux voteurs tronquerait des lignes de données."""
+        detector = HybridDetector()
+        results = [
+            self._result("density", start=3, rows=2, confidence=0.85, data_end=5),
+            self._result("pattern", start=4, rows=1, confidence=0.83, data_end=40),
+        ]
+        combined = detector._create_combined_result(
+            results, {"border": 0.40, "density": 0.30, "pattern": 0.30}
+        )
+        assert combined.data_end_row == 40
+
+    def test_agreement_branch_unchanged(self):
+        """Non-régression : quand deux détecteurs s'accordent sur la ligne,
+        le comportement existant (bonus de confiance) est préservé."""
+        detector = HybridDetector()
+        results = [
+            self._result("density", start=3, rows=2, confidence=0.54),
+            self._result("pattern", start=3, rows=2, confidence=0.73),
+            self._result("border", start=7, rows=1, confidence=0.40),
+        ]
+        combined = detector._create_combined_result(
+            results, {"border": 0.40, "density": 0.30, "pattern": 0.30}
+        )
+        assert combined.header_start_row == 3
+        assert combined.header_rows == 2
+        assert combined.confidence > 0.73  # bonus d'accord appliqué

@@ -78,7 +78,7 @@ class BorderDetector(BaseDetector):
 
             # Détecter la zone de tableau (le contenu départage en-tête/données
             # quand les bordures ne suffisent pas — cas du tableau quadrillé)
-            table_zone = self._detect_table_zone(border_analysis, df)
+            table_zone = self._detect_table_zone(border_analysis, df, ws)
 
             if table_zone is None:
                 return self._create_failed_result(
@@ -196,8 +196,39 @@ class BorderDetector(BaseDetector):
 
         return analysis
 
+    def _header_end_from_vertical_merges(self, worksheet,
+                                         header_start: int,
+                                         max_end: int) -> Optional[int]:
+        """Fin de l'en-tête déduite des cellules FUSIONNÉES VERTICALEMENT.
+
+        Un en-tête sur deux niveaux se construit presque toujours ainsi : la
+        colonne d'identité est fusionnée verticalement (``A3:A4``) pendant que
+        les catégories sont fusionnées horizontalement au-dessus de leurs
+        sous-colonnes (``B3:C3``). Cette fusion verticale est une information
+        de STRUCTURE, indépendante du contenu : elle dit que les lignes 3 et 4
+        forment un seul bloc d'en-tête.
+
+        C'est le signal qui manque quand les données ne contiennent aucun
+        nombre (« NEANT », texte libre, ligne vide) : le critère par contenu
+        est alors aveugle et retombe à 1 seule ligne d'en-tête, coupant le
+        tableau au mauvais endroit.
+
+        Renvoie la dernière ligne d'en-tête, ou None si aucune fusion verticale
+        ne démarre sur ``header_start``.
+        """
+        if worksheet is None:
+            return None
+        header_end = None
+        for rng in getattr(worksheet, 'merged_cells', {}).ranges:
+            # Fusion verticale démarrant sur la 1re ligne d'en-tête.
+            if rng.min_row == header_start and rng.max_row > rng.min_row:
+                candidate = min(rng.max_row, max_end)
+                if header_end is None or candidate > header_end:
+                    header_end = candidate
+        return header_end
+
     def _detect_table_zone(self, border_analysis: Dict[int, Dict],
-                           df) -> Optional[Tuple[int, int, int]]:
+                           df, worksheet=None) -> Optional[Tuple[int, int, int]]:
         """
         Détecte la zone du tableau (en-tête + données).
 
@@ -249,17 +280,29 @@ class BorderDetector(BaseDetector):
         #    ligne ne servirait de butoir et l'en-tête engloutirait les données.
         #    Dans ce cas on retombe sur le défaut sûr : 1 seule ligne d'en-tête.
         header_end = header_start
+        max_header_end = min(header_start + 4, data_end)
         data_zone_has_numbers = any(
             self._row_numeric_count(df, rn - 1) > 0
             for rn in range(header_start + 1, data_end + 1)
         )
         if data_zone_has_numbers:
-            max_header_end = min(header_start + 4, data_end)
             for row_num in range(header_start + 1, max_header_end + 1):
                 if self._row_numeric_count(df, row_num - 1) == 0:
                     header_end = row_num
                 else:
                     break
+        else:
+            # Aucun nombre dans la zone de données : le critère par contenu est
+            # aveugle (données « NEANT », texte libre, ou fichier non rempli).
+            # Les fusions verticales décrivent alors la structure de l'en-tête.
+            # Sans ce repli, ces fichiers étaient détectés avec 1 seule ligne
+            # d'en-tête ; leurs libellés n'étaient plus aplatis comme ceux du
+            # reste du lot et l'aligneur créait des colonnes en double.
+            merged_end = self._header_end_from_vertical_merges(
+                worksheet, header_start, max_header_end
+            )
+            if merged_end is not None:
+                header_end = merged_end
 
         return (header_start, header_end, data_end)
 

@@ -273,7 +273,20 @@ class HybridDetector(BaseDetector):
                 weighted_score / total_weight if total_weight > 0 else 0
             )
             voted_header_start = int(np.median(header_starts))
-            voters = results
+            # Même règle qu'en cas d'accord : seuls les détecteurs qui ont
+            # trouvé la ligne d'en-tête RETENUE votent sur le reste de la
+            # structure. Un détecteur qui s'est trompé de ligne décrit un autre
+            # tableau que celui qu'on garde ; son header_rows ne veut rien dire
+            # ici. Sans ce filtre, sur un fichier où density disait (start=3,
+            # rows=2) et pattern (start=4, rows=1), la médiane de [2, 1] donnait
+            # rows=1 : l'en-tête sur deux lignes n'était plus aplati, ses
+            # libellés ne correspondaient plus à ceux des autres fichiers du lot
+            # et l'aligneur créait des colonnes en double.
+            voters = [r for r in results if r.header_start_row == voted_header_start]
+            if not voters:
+                # La médiane peut tomber entre deux lignes proposées : personne
+                # ne l'a votée. On retombe alors sur l'ensemble des détecteurs.
+                voters = results
 
         # Nombre de lignes d'en-tête : écarter les valeurs aberrantes (> 5,
         # symptôme d'un détecteur ayant absorbé des données dans l'en-tête,
@@ -287,7 +300,9 @@ class HybridDetector(BaseDetector):
         # candidates — garder trop de lignes est bénin (les lignes vides et
         # totaux sont filtrés en aval), en perdre est destructeur. L'ancienne
         # médiane pouvait couper la moitié des données sur simple désaccord.
-        data_ends = [r.data_end_row for r in voters]
+        # NB : on considère ici TOUS les détecteurs, pas seulement `voters` :
+        # restreindre le vote abaisserait ce maximum et tronquerait des lignes.
+        data_ends = [r.data_end_row for r in results]
         voted_data_end = 0 if any(e == 0 for e in data_ends) else int(max(data_ends))
 
         # Choisir le résultat avec le header_start le plus proche du vote
