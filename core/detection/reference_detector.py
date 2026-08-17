@@ -66,6 +66,8 @@ class ReferenceDetector(BaseDetector):
         # Extraire les en-têtes de référence
         self.reference_headers = self._extract_reference_headers()
         self.reference_words = self._extract_words(self.reference_headers)
+        # Avertissement si la ligne indiquée ne ressemble pas à un en-tête.
+        self.reference_warning = self._check_reference_plausibility()
 
     def _extract_reference_headers(self) -> List[str]:
         """
@@ -86,6 +88,48 @@ class ReferenceDetector(BaseDetector):
             raise RuntimeError(
                 f"Impossible d'extraire les en-têtes de référence: {e}"
             )
+
+    def _check_reference_plausibility(self) -> Optional[str]:
+        """Avertit si la ligne indiquée ne ressemble pas à une ligne d'en-tête.
+
+        Un tableau a plusieurs colonnes, donc plusieurs libellés. Quand la ligne
+        choisie n'en porte qu'un ou deux alors que le tableau est plus large,
+        c'est presque toujours le TITRE du document (« SUIVI DES PLANTS DES
+        CAMPAGNES… », souvent fusionné sur toute la largeur) et non l'en-tête.
+
+        Ce cas est particulièrement traître : tous les fichiers du lot portent
+        le même titre, la similarité affiche donc 100 % et rien ne signale
+        l'erreur. La compilation « réussit » en produisant un tableau dont les
+        vrais en-têtes sont devenus des lignes de données.
+
+        Renvoie le message d'avertissement, ou None si la ligne est plausible.
+        """
+        # extract_headers remplace une colonne SANS libellé par « ColN ». Ces
+        # placeholders sont précisément le signal recherché : ils ne comptent
+        # donc pas comme de vrais libellés.
+        placeholder = re.compile(r"^col\d+$", re.IGNORECASE)
+        labels = [
+            str(h).strip() for h in (self.reference_headers or [])
+            if h is not None and str(h).strip()
+            and str(h).strip().lower() != 'nan'
+            and not placeholder.match(str(h).strip())
+        ]
+        n_labels = len(labels)
+        n_cols = len(self.reference_headers or [])
+
+        # Un tableau étroit (2-3 colonnes) peut légitimement n'avoir qu'un ou
+        # deux libellés : on ne se prononce qu'à partir de 4 colonnes.
+        if n_cols < 4 or n_labels == 0 or n_labels > 2:
+            return None
+
+        apercu = " / ".join(labels[:2])
+        return (
+            f"La ligne {self.reference_header_row} ne porte que {n_labels} "
+            f"libellé(s) « {apercu} » pour {n_cols} colonnes : il s'agit "
+            f"probablement du titre du document, pas de la ligne d'en-tête. "
+            f"Vérifiez le numéro de ligne (les en-têtes sont souvent plus bas), "
+            f"sinon vos en-têtes réels seront compilés comme des données."
+        )
 
     def detect(self, file_path: str, df: Optional[pd.DataFrame] = None) -> DetectionResult:
         """

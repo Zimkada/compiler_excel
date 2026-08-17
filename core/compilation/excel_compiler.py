@@ -1360,6 +1360,15 @@ class ExcelCompiler:
                 max_search_rows=50  # Chercher jusqu'à 50 lignes
             )
 
+            # La ligne d'en-tête indiquée conditionne TOUT le lot : si elle ne
+            # ressemble pas à un en-tête (titre du document pris pour tel), le
+            # dire en premier. Tous les fichiers portant le même titre, la
+            # similarité affiche 100 % et rien d'autre ne signalerait l'erreur.
+            ref_warning = getattr(self.reference_detector, 'reference_warning', None)
+            if ref_warning:
+                self.logger.warning(ref_warning)
+                result.warnings.insert(0, ref_warning)
+
             # Détection sur tous les fichiers (y compris la référence)
             for file_path in file_paths:
                 try:
