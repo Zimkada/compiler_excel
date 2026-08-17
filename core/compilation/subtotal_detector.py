@@ -110,3 +110,92 @@ def is_total_row(row: Sequence,
                  total_keywords: Sequence[str] = DEFAULT_TOTAL_KEYWORDS) -> bool:
     """Vrai si la ligne est un total OU un sous-total (à exclure si drop activé)."""
     return classify_row(row, subtotal_keywords, total_keywords) != ROW_KIND_DETAIL
+
+
+# Marqueurs d'un bloc de signature en pied de tableau. Observés tels quels sur
+# les formulaires administratifs réels (lieu/date, qualité du signataire).
+SIGNATURE_KEYWORDS: List[str] = [
+    "FAIT A",
+    "LE DIRECTEUR",
+    "LA DIRECTRICE",
+    "CHEF D ETABLISSEMENT",
+    "CHEF ETABLISSEMENT",
+    "LE CENSEUR",
+    "LE PROVISEUR",
+    "SIGNATURE",
+    "CACHET",
+]
+
+
+def is_signature_row(row: Sequence,
+                     identity_col: int = 0,
+                     keywords: Sequence[str] = SIGNATURE_KEYWORDS) -> bool:
+    """Vrai si la ligne appartient au bloc de signature sous le tableau.
+
+    Un formulaire rempli se termine souvent par « Fait à X, le … » suivi de la
+    qualité et du nom du signataire. Ces lignes sont sous le tableau, pas
+    dedans : compilées, elles produisent des lignes sans établissement dont le
+    texte atterrit dans des colonnes de chiffres.
+
+    Trois conditions CUMULATIVES, pour ne jamais sacrifier une vraie donnée :
+      1. la colonne d'identité (``identity_col``, la 1re par défaut) est vide —
+         une ligne de données nomme toujours son établissement ;
+      2. la ligne ne contient AUCUNE valeur numérique — une ligne de données
+         porte des chiffres, un bloc de signature n'en a pas ;
+      3. au moins une cellule correspond à un marqueur de signature, OU la
+         ligne ne porte qu'une seule cellule de texte (nom du signataire seul,
+         qui suit une ligne « Le Directeur » sans mot-clé propre).
+
+    La condition 2 est le vrai garde-fou : une ligne de continuation légitime
+    (identité vide mais chiffres présents) n'est jamais écartée.
+    """
+    values = list(row)
+    if not values:
+        return False
+
+    # 1. Colonne d'identité renseignée -> c'est une ligne de données.
+    if 0 <= identity_col < len(values):
+        ident = values[identity_col]
+        if ident is not None and str(ident).strip() and str(ident).strip().lower() != 'nan':
+            return False
+
+    texts: List[str] = []
+    for val in values:
+        if val is None:
+            continue
+        if isinstance(val, bool):
+            continue
+        # 2. Une valeur numérique => ligne de données, jamais une signature.
+        if isinstance(val, (int, float)):
+            if not (isinstance(val, float) and val != val):  # ignorer NaN
+                return False
+            continue
+        text = str(val).strip()
+        if not text or text.lower() == 'nan':
+            continue
+        # Un nombre saisi en texte compte aussi comme valeur numérique.
+        if _looks_numeric(text):
+            return False
+        texts.append(text)
+
+    if not texts:
+        return False  # ligne vide : traitée par le filtre de lignes vides
+
+    if _row_contains(texts, keywords):
+        return True
+
+    # Nom du signataire seul sous un « Le Directeur » : une unique cellule de
+    # texte, sans le moindre chiffre, dans une ligne sans identité.
+    return len(texts) == 1
+
+
+def _looks_numeric(text: str) -> bool:
+    """Vrai si le texte représente un nombre (« 30 », « 1 234,5 », « 12.0 »)."""
+    cleaned = text.replace(" ", "").replace(" ", "").replace(",", ".")
+    if not cleaned:
+        return False
+    try:
+        float(cleaned)
+        return True
+    except ValueError:
+        return False

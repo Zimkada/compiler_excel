@@ -232,3 +232,69 @@ class TestPrunePhantomColumns:
         ])
         pruned, removed = prune_phantom_columns(df)
         assert removed == 0
+
+
+class TestPruneLeadingEmptyColumns:
+    """Recadrage d'un tableau saisi décalé (colonnes vides à GAUCHE).
+
+    Cas réel : un même formulaire rempli par plusieurs établissements, dont l'un
+    a saisi son tableau à partir de la colonne C. Empilé tel quel, ce fichier
+    décale toutes ses valeurs — corruption silencieuse.
+    """
+
+    def test_shifted_table_is_recadre(self):
+        import pandas as pd
+        from core.detection.base_detector import prune_leading_empty_columns
+
+        df = pd.DataFrame([
+            [None, None, 'Etablissement', 'Total'],
+            [None, None, 'CEG MADINA', 30],
+        ])
+        pruned, removed = prune_leading_empty_columns(df)
+        assert removed == 2
+        assert pruned.shape[1] == 2
+        assert pruned.iloc[0].tolist() == ['Etablissement', 'Total']
+
+    def test_columns_are_reindexed(self):
+        """Les colonnes sont réindexées à partir de 0 : le moteur adresse les
+        colonnes par POSITION, un index démarrant à 2 fausserait les repères."""
+        import pandas as pd
+        from core.detection.base_detector import prune_leading_empty_columns
+
+        df = pd.DataFrame([[None, None, 'A', 'B']])
+        pruned, _ = prune_leading_empty_columns(df)
+        assert list(pruned.columns) == [0, 1]
+
+    def test_well_framed_table_untouched(self):
+        """Un tableau déjà cadré en colonne A n'est jamais modifié."""
+        import pandas as pd
+        from core.detection.base_detector import prune_leading_empty_columns
+
+        df = pd.DataFrame([['Etablissement', 'Total'], ['CEG X', 12]])
+        pruned, removed = prune_leading_empty_columns(df)
+        assert removed == 0
+        assert pruned.shape[1] == 2
+
+    def test_inner_empty_column_preserved(self):
+        """Une colonne vide au MILIEU appartient au schéma : jamais coupée.
+        Seules les colonnes vides PRÉCÉDANT la 1re colonne remplie partent."""
+        import pandas as pd
+        from core.detection.base_detector import prune_leading_empty_columns
+
+        df = pd.DataFrame([
+            [None, 'Etablissement', None, 'Total'],
+            [None, 'CEG X', None, 12],
+        ])
+        pruned, removed = prune_leading_empty_columns(df)
+        assert removed == 1
+        assert pruned.shape[1] == 3
+        assert pruned.iloc[0].tolist() == ['Etablissement', None, 'Total']
+
+    def test_empty_dataframe_untouched(self):
+        import pandas as pd
+        from core.detection.base_detector import prune_leading_empty_columns
+
+        df = pd.DataFrame([[None, None], [None, None]])
+        pruned, removed = prune_leading_empty_columns(df)
+        assert removed == 0
+        assert pruned.shape[1] == 2

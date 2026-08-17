@@ -114,6 +114,44 @@ def prune_phantom_columns(
     return pruned, n_cols - keep
 
 
+def prune_leading_empty_columns(df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
+    """Élague les colonnes ENTIÈREMENT vides en début de tableau.
+
+    Symétrique de ``prune_phantom_columns`` (qui coupe en fin de tableau). Un
+    même formulaire rempli par plusieurs établissements est parfois saisi
+    décalé : le tableau démarre en colonne C au lieu de A, les deux premières
+    colonnes restant vides. Empilé tel quel, ce fichier décale toutes ses
+    valeurs d'un rang par rapport aux autres — corruption silencieuse.
+
+    On ne coupe QUE les colonnes strictement vides sur TOUTE leur hauteur, et
+    seulement celles qui précèdent la première colonne contenant une valeur :
+    une colonne vide au MILIEU du tableau est conservée (elle appartient au
+    schéma, son vide est peut-être significatif). Sans aucune donnée, ou si la
+    première colonne est déjà remplie, le df est renvoyé inchangé.
+
+    Returns:
+        (df_élagué, nb_colonnes_coupées).
+    """
+    n_rows, n_cols = df.shape
+    if n_cols == 0 or n_rows == 0:
+        return df, 0
+
+    filled_per_col = df.notna().sum(axis=0).tolist()
+    first_filled = next(
+        (pos for pos, count in enumerate(filled_per_col) if count > 0),
+        None,
+    )
+    if not first_filled:
+        # Aucune colonne remplie (tableau vide), ou tableau déjà bien cadré.
+        return df, 0
+
+    pruned = df.iloc[:, first_filled:]
+    # Réindexer les colonnes : le reste du moteur adresse les colonnes par
+    # position (iloc / tolist), un index démarrant à 2 fausserait les repères.
+    pruned.columns = range(pruned.shape[1])
+    return pruned, first_filled
+
+
 @dataclass
 class DetectionResult:
     """
@@ -272,6 +310,12 @@ class BaseDetector(ABC):
                                 sep='\t', encoding='utf-8-sig')
             else:
                 raise ValueError(f"Format non supporté: {ext}")
+
+            # Recadrer un tableau saisi décalé (colonnes vides à gauche), comme
+            # le fait la compilation : sinon un fichier décalé serait comparé
+            # colonne à colonne contre la référence et jugé peu similaire, alors
+            # que sa structure est identique une fois recadrée.
+            df, _ = prune_leading_empty_columns(df)
 
             return df
 

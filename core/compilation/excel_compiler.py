@@ -23,10 +23,12 @@ from .compilation_models import (
     OutputFormat
 )
 from ..detection import HybridDetector, ReferenceDetector, DetectionResult
-from ..detection.base_detector import prune_phantom_columns, sniff_csv_separator
+from ..detection.base_detector import (
+    prune_phantom_columns, prune_leading_empty_columns, sniff_csv_separator
+)
 from .merge_handler import load_with_unmerge
 from .subtotal_detector import (
-    classify_row, ROW_KIND_DETAIL,
+    classify_row, ROW_KIND_DETAIL, is_signature_row,
     DEFAULT_SUBTOTAL_KEYWORDS, DEFAULT_TOTAL_KEYWORDS,
 )
 from .column_aligner import ColumnAligner
@@ -259,7 +261,7 @@ class ExcelCompiler:
                 warning = (
                     f"Détection écartée (confiance "
                     f"{structure['rejected_confidence']:.0%} < seuil "
-                    f"{self.options.detection_confidence_threshold:.0%}) — "
+                    f"{self.options.detection_confidence_threshold:.0%}) - "
                     f"paramètres manuels appliqués. Vérifiez la ligne d'en-tête."
                 )
             else:
@@ -285,6 +287,11 @@ class ExcelCompiler:
             if ext != '.xlsx' and ext != '.xlsm':
                 df, _ = prune_phantom_columns(df)
 
+            # Même recadrage à gauche que la compilation (invariant aperçu =
+            # sortie) : sinon l'aperçu montrerait les colonnes vides d'un
+            # tableau décalé que la compilation, elle, élague.
+            df, _ = prune_leading_empty_columns(df)
+
             n = len(df)
             # En-têtes (fusion multi-lignes via le helper du détecteur de base)
             headers: List[str] = []
@@ -309,6 +316,8 @@ class ExcelCompiler:
                     continue
                 row = df.iloc[idx].tolist()
                 if self.options.remove_empty_rows and self._is_row_empty(row):
+                    continue
+                if self.options.drop_signature_rows and is_signature_row(row):
                     continue
                 if self.options.drop_subtotal_rows and classify_row(row, sub_kw, tot_kw) != ROW_KIND_DETAIL:
                     continue
@@ -617,6 +626,14 @@ class ExcelCompiler:
                         f"{Path(file_path).name}: {n_sub} ligne(s) de total {action}"
                     )
 
+                # Signaler les lignes de signature écartées (jamais silencieux).
+                n_sig = detection_info.get('signature_rows', 0)
+                if n_sig:
+                    result.warnings.append(
+                        f"{Path(file_path).name}: {n_sig} ligne(s) de signature "
+                        f"exclue(s) (mention sous le tableau, pas des données)"
+                    )
+
                 # Signaler un classeur multi-feuilles : seule la première est
                 # compilée (les données des autres feuilles seraient oubliées).
                 if Path(file_path).suffix.lower() in ['.xlsx', '.xlsm']:
@@ -876,6 +893,15 @@ class ExcelCompiler:
         # milliers de colonnes vides.
         df = self._read_excel_df(file_path)
         df, _ = prune_phantom_columns(df)
+        # Recadrer un tableau saisi décalé (colonnes vides à gauche) : sans
+        # cela ses valeurs s'empilent sous les mauvaises colonnes des autres
+        # fichiers.
+        df, n_left = prune_leading_empty_columns(df)
+        if n_left:
+            self.logger.info(
+                f"{Path(file_path).name}: {n_left} colonne(s) vide(s) à gauche "
+                f"élaguée(s) (tableau décalé, recadré à gauche)"
+            )
 
         # Extraire les en-têtes (aplatis en une ligne si l'option est active).
         headers = self._collect_headers(df, header_start_row, header_rows)
@@ -885,6 +911,7 @@ class ExcelCompiler:
         end_idx = (data_end_row if data_end_row else len(df))
         data, headers, n_subtotal = self._extract_data_rows(df, start_idx, end_idx, headers)
         detection_info['subtotal_rows'] = n_subtotal
+        detection_info['signature_rows'] = getattr(self, '_last_signature_rows', 0)
 
         return data, headers, detection_info
 
@@ -897,6 +924,9 @@ class ExcelCompiler:
         - sinon, si mark_subtotal_rows : une colonne « Type de ligne » est
           ajoutée en tête (détail/sous-total/total), et le label correspondant
           est inséré dans les en-têtes — pour un filtrage propre côté tableur.
+        - drop_signature_rows : les lignes du bloc de signature en pied de
+          tableau (« Fait à …, le … », « Le Directeur », nom du signataire)
+          sont exclues — ce sont des mentions sous le tableau, pas des données.
 
         Renvoie (data, headers_éventuellement_préfixés, nombre_de_totaux_vus).
         Point d'extraction unique partagé par Excel et CSV/TSV.
@@ -905,9 +935,11 @@ class ExcelCompiler:
         tot_kw = self.options.total_keywords or DEFAULT_TOTAL_KEYWORDS
         drop = self.options.drop_subtotal_rows
         mark = (not drop) and self.options.mark_subtotal_rows
+        drop_sig = self.options.drop_signature_rows
 
         data: List[List] = []
         n_subtotal = 0
+        self._last_signature_rows = 0
         for loop_i, row_idx in enumerate(range(start_idx, end_idx)):
             # Annulation réactive sur les gros fichiers déjà chargés : on
             # vérifie périodiquement (tous les 2000 lignes) sans pénaliser le
@@ -921,6 +953,11 @@ class ExcelCompiler:
             row = df.iloc[row_idx].tolist()
 
             if self.options.remove_empty_rows and self._is_row_empty(row):
+                continue
+
+            # Bloc de signature en pied de tableau : ce n'est pas une donnée.
+            if drop_sig and is_signature_row(row):
+                self._last_signature_rows += 1
                 continue
 
             kind = classify_row(row, sub_kw, tot_kw)
@@ -982,6 +1019,12 @@ class ExcelCompiler:
         df = self._enforce_row_cap(df, file_path)
         # Cohérence avec la détection : élaguer d'éventuelles colonnes parasites.
         df, _ = prune_phantom_columns(df)
+        df, n_left = prune_leading_empty_columns(df)
+        if n_left:
+            self.logger.info(
+                f"{Path(file_path).name}: {n_left} colonne(s) vide(s) à gauche "
+                f"élaguée(s) (tableau décalé, recadré à gauche)"
+            )
 
         # Déterminer les paramètres de chargement (override > détection > manuel)
         detection_info = self._resolve_structure(file_path, detection)
@@ -998,6 +1041,7 @@ class ExcelCompiler:
         end_idx = (data_end_row if data_end_row else len(df))
         data, headers, n_subtotal = self._extract_data_rows(df, start_idx, end_idx, headers)
         detection_info['subtotal_rows'] = n_subtotal
+        detection_info['signature_rows'] = getattr(self, '_last_signature_rows', 0)
 
         return data, headers, detection_info
 

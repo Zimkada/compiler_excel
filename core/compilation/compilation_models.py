@@ -101,6 +101,15 @@ class CompilationOptions:
     subtotal_keywords: Optional[List[str]] = None
     total_keywords: Optional[List[str]] = None
 
+    # Blocs de signature en pied de tableau (v3.2) — un formulaire rempli se
+    # termine souvent par « Fait à X, le … » puis la qualité et le nom du
+    # signataire. Ces lignes sont SOUS le tableau : compilées, elles produisent
+    # des lignes sans identité dont le texte tombe dans des colonnes de
+    # chiffres. Exclues par défaut ; la détection exige cumulativement une
+    # identité vide, aucune valeur numérique et un marqueur de signature
+    # (voir subtotal_detector.is_signature_row).
+    drop_signature_rows: bool = True
+
     # Alignement des colonnes par libellé (v3.2) — quand les fichiers n'ont pas
     # exactement les mêmes colonnes (ordre différent, colonne en plus / en
     # moins), aligne chaque colonne sur son LIBELLÉ normalisé plutôt que sur sa
@@ -156,6 +165,7 @@ class CompilationOptions:
             'subtotal_row_label': self.subtotal_row_label,
             'subtotal_keywords': self.subtotal_keywords,
             'total_keywords': self.total_keywords,
+            'drop_signature_rows': self.drop_signature_rows,
             'align_columns_by_label': self.align_columns_by_label,
             'column_aliases': dict(self.column_aliases),
             'max_file_size_mb': self.max_file_size_mb,
@@ -217,6 +227,10 @@ class FileCompilationResult:
     # Nombre de lignes de total / sous-total détectées dans ce fichier
     # (exclues si drop_subtotal_rows, sinon conservées et éventuellement marquées).
     subtotal_rows: int = 0
+
+    # Nombre de lignes du bloc de signature en pied de tableau écartées
+    # (« Fait à …, le … », « Le Directeur », nom du signataire).
+    signature_rows: int = 0
 
     # Confiance d'une détection ÉCARTÉE (sous le seuil) quand on est retombé
     # sur les paramètres manuels. 0.0 = aucune détection écartée. Sert à
